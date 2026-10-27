@@ -85,6 +85,27 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         Assert.Equal(2, jwks.Requests);
     }
 
+    [Fact]
+    public async Task Forged_tokens_with_unknown_keys_fetch_the_keys_at_most_once_a_minute()
+    {
+        Assert.True(await Check(Token(projectKey, "key-1")));
+
+        for (var i = 0; i < 50; i++) Assert.False(await Check(Token(otherKey, $"forged-{i}")));
+
+        Assert.Equal(2, jwks.Requests);
+        time.Advance(TimeSpan.FromMinutes(1));
+        Assert.False(await Check(Token(otherKey, "forged-late")));
+        Assert.Equal(3, jwks.Requests);
+    }
+
+    [Fact]
+    public async Task When_Supabase_does_not_answer_the_token_is_refused_without_an_error()
+    {
+        jwks.Fail = true;
+
+        Assert.False(await Check(Token(projectKey, "key-1")));
+    }
+
     private static string Token(ECDsa key, string kid, DateTimeOffset? expires = null, string issuer = Issuer, string audience = "authenticated") =>
         new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }.CreateToken(new SecurityTokenDescriptor
         {
@@ -115,11 +136,15 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
 
         public int Requests { get; private set; }
 
+        public bool Fail { get; set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Assert.Equal("https://example.supabase.co/auth/v1/.well-known/jwks.json", request.RequestUri!.ToString());
             Requests++;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Body) });
+            return Task.FromResult(Fail
+                ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Body) });
         }
     }
 }

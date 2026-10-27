@@ -1,6 +1,27 @@
+using System.Text.Json;
+using HamQso.Spots.Host;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHealthChecks();
+var ports = builder.Configuration.GetSection(ServerOptions.Section).Get<ServerOptions>() ?? new ServerOptions();
+builder.WebHost.ConfigureKestrel(kestrel =>
+{
+    kestrel.ListenAnyIP(ports.PublicPort);
+    kestrel.ListenAnyIP(ports.InternalPort);
+});
+builder.Services.AddSpotsServer(builder.Configuration);
 
 var app = builder.Build();
-app.MapHealthChecks("/health");
-app.Run();
+app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = WriteHealth });
+app.MapMqttAuth($"*:{ports.InternalPort}");
+await app.RunAsync();
+
+static Task WriteHealth(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
+{
+    context.Response.ContentType = "application/json";
+    return context.Response.WriteAsync(JsonSerializer.Serialize(new
+    {
+        status = report.Status.ToString(),
+        sources = report.Entries.SelectMany(e => e.Value.Data).ToDictionary(d => d.Key, d => d.Value),
+    }));
+}

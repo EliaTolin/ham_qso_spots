@@ -82,13 +82,13 @@ public sealed class TelnetNodeSourceTests : IDisposable
     [Fact]
     public async Task A_mute_node_is_reported_and_the_connection_reopened()
     {
-        var connections = 0;
+        var clients = new List<TcpClient>();
         var node = RunNode(async () =>
         {
-            while (connections < 2)
+            while (clients.Count < 2)
             {
                 var client = await listener.AcceptTcpClientAsync(cts.Token);
-                connections++;
+                clients.Add(client);
                 await Write(client.GetStream(), "login: ");
                 // Then silence: no spot, no close.
             }
@@ -101,7 +101,8 @@ public sealed class TelnetNodeSourceTests : IDisposable
         await stop.CancelAsync();
         await reading;
 
-        Assert.Equal(2, connections);
+        Assert.Equal(2, clients.Count);
+        clients.ForEach(c => c.Dispose());
         Assert.Contains(health.Failures, f => f.Contains("no data", StringComparison.Ordinal));
     }
 

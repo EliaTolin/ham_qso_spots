@@ -64,5 +64,7 @@ public class DxClusterLineParserTests
     [InlineData("Hello IU2ABC, this is EA4RCH-5 in Madrid")]
     [InlineData("")]
     [InlineData("DX de IK2ABC:  abc  F4LHL  ft8  2359Z")]
+    [InlineData("DX de IK2ABC:  7074.0  F4LHL  ft8  2599Z")]
+    [InlineData("DX de IK2ABC:  7074.0  F4LHL  ft8  1275Z")]
     public void Ignores_everything_else(string line) => Assert.Null(DxClusterLineParser.Parse("DXFun", line, Now));
 }

@@ -6,6 +6,7 @@
     <PackageReference Include="Dapper" />
     <PackageReference Include="MQTTnet" />
     <PackageReference Include="Npgsql" />
+    <PackageReference Include="Supabase" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
   </ItemGroup>

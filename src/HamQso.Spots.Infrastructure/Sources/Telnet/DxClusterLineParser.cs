@@ -11,7 +11,7 @@ namespace HamQso.Spots.Infrastructure.Sources.Telnet;
 /// Live:  DX de EA4RCH-#:   14025.0  JA1ABC   CW 12 dB 25 WPM CQ     2009Z IN80
 /// sh/dx:   14025.0  JA1ABC      6-Oct-2026 2009Z CW 12 dB 25 WPM    &lt;EA4RCH-#&gt;
 /// </code>
-/// The spotter is kept as sent ("EA4RCH-#" tells a skimmer).
+/// The spotter is kept as sent ("EA4RCH-#" tells a skimmer). Times outside 0000-2359 are not spots.
 /// </summary>
 public static partial class DxClusterLineParser
 {
@@ -65,10 +65,10 @@ public static partial class DxClusterLineParser
         return t > utc + FutureTolerance ? t.AddDays(-1) : t;
     }
 
-    [GeneratedRegex(@"^DX de ([A-Z0-9/#-]+?):?\s+(\d+(?:\.\d+)?)\s+([A-Z0-9/]+)\s+(.*?)\s*(\d{4})Z(?:\s+([A-R]{2}\d{2}))?\s*$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^DX de ([A-Z0-9/#-]+?):?\s+(\d+(?:\.\d+)?)\s+([A-Z0-9/]+)\s+(.*?)\s*((?:[01]\d|2[0-3])[0-5]\d)Z(?:\s+([A-R]{2}\d{2}))?\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex Live();
 
-    [GeneratedRegex(@"^\s*(\d+(?:\.\d+)?)\s+([A-Z0-9/]+)\s+(\d{1,2})-([A-Za-z]{3})-(\d{4})\s+(\d{4})Z\s*(.*?)\s*<([A-Z0-9/#-]+)>\s*$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^\s*(\d+(?:\.\d+)?)\s+([A-Z0-9/]+)\s+(\d{1,2})-([A-Za-z]{3})-(\d{4})\s+((?:[01]\d|2[0-3])[0-5]\d)Z\s*(.*?)\s*<([A-Z0-9/#-]+)>\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex History();
 
     [GeneratedRegex(@"[\x00-\x1F\x7F]")]

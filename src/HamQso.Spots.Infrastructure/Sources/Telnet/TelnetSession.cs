@@ -12,7 +12,13 @@ public sealed class TelnetSession(TelnetOptions options, DateTimeOffset start)
     private DateTimeOffset? loginAt;
     private bool backlogSent;
 
+    /// <summary>A cluster line is under 100 characters: text without newline beyond this is dropped.</summary>
+    public const int MaxPendingChars = 4096;
+
     public TelnetDecoder Decoder { get; } = new();
+
+    /// <summary>Characters received after the last newline.</summary>
+    public int PendingLength => pending.Length;
 
     /// <summary>How long to wait for data before <see cref="OnSilence"/>.</summary>
     public TimeSpan NextWait(DateTimeOffset now)
@@ -49,6 +55,8 @@ public sealed class TelnetSession(TelnetOptions options, DateTimeOffset start)
         var all = pending.ToString();
         var lines = all.Split('\n');
         pending.Clear().Append(lines[^1]);
+        // A node that never sends a newline must not grow the buffer forever.
+        if (pending.Length > MaxPendingChars) pending.Clear();
 
         var spots = new List<Spot>();
         foreach (var line in lines[..^1])

@@ -15,7 +15,7 @@ namespace HamQso.Spots.Host;
 public sealed partial class IngestionWorker(
     IEnumerable<ISpotSource> sources,
     IngestSpots ingest,
-    PostgresSpotStore store,
+    ISpotArchiveSchema schema,
     SourceHealthRegistry health,
     TimeProvider time,
     ILogger<IngestionWorker> logger) : BackgroundService
@@ -26,7 +26,7 @@ public sealed partial class IngestionWorker(
     {
         try
         {
-            await store.EnsureSchemaAsync(stoppingToken);
+            await schema.EnsureSchemaAsync(stoppingToken);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {

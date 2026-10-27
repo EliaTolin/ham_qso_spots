@@ -12,7 +12,7 @@ namespace HamQso.Spots.Infrastructure.Postgres;
 /// batch at a time (IngestSpots), so a reader never sees a seq whose earlier
 /// seqs are not committed yet. Saves tell /health ("archive").
 /// </summary>
-public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth health) : ISpotStore, ISpotReader
+public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth health) : ISpotStore, ISpotReader, ISpotArchiveSchema
 {
     /// <summary>Name of the archive in /health.</summary>
     public const string HealthName = "archive";

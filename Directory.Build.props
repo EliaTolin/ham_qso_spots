@@ -22,5 +22,6 @@
 
   <ItemGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
     <Using Include="Xunit" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
   </ItemGroup>
 </Project>

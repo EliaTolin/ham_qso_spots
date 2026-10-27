@@ -34,6 +34,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PostgresSpotStore>();
         services.AddSingleton<ISpotStore>(sp => sp.GetRequiredService<PostgresSpotStore>());
         services.AddSingleton<ISpotReader>(sp => sp.GetRequiredService<PostgresSpotStore>());
+        services.AddSingleton<ISpotArchiveSchema>(sp => sp.GetRequiredService<PostgresSpotStore>());
         services.AddSingleton<GetSpots>();
         services.AddSingleton<ISourceHealth>(sp => sp.GetRequiredService<SourceHealthRegistry>());
         services.AddSingleton<ISpotPublisher, MqttSpotPublisher>();

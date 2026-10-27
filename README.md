@@ -35,6 +35,7 @@ Un solo formato, senza compressione: `{"seq": 1042, "full": false, "spots": [{sp
 
 ```
 dotnet test                 # serve Docker per Postgres e Mosquitto (Testcontainers)
+scripts/coverage.sh         # test + copertura delle righe: fallisce sotto il 90% totale o l'85% per assembly
 dotnet user-secrets set "Supabase:SecretKey" "sb_secret_..." --project src/HamQso.Spots.Host
 ```
 

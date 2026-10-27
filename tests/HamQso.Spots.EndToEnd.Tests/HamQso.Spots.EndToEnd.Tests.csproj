@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    End-to-end tests against the deployed server (spot.hamqso.app) and Supabase.
+    Not in HamQso.Spots.slnx: they need production keys. Run them by hand:
+      SUPABASE_PUBLISHABLE_KEY=... SUPABASE_SECRET_KEY=... dotnet test tests/HamQso.Spots.EndToEnd.Tests
+  -->
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="MQTTnet" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HamQso.Spots.Infrastructure/HamQso.Spots.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

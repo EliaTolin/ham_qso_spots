@@ -28,6 +28,14 @@ dotnet test                 # serve Docker per Postgres e Mosquitto (Testcontain
 dotnet user-secrets set "Supabase:SecretKey" "sb_secret_..." --project src/HamQso.Spots.Host
 ```
 
+## Test end-to-end (produzione)
+
+`tests/HamQso.Spots.EndToEnd.Tests` prova il sistema pubblicato come lo vede un'app, senza l'app: `/health`, broker su `wss://spot.hamqso.app/mqtt` con un token Supabase vero (utente anonimo di prova), pubblicazione rifiutata, token falsi rifiutati, `alert_spots` che crea l'evento d'avviso solo per l'avviso di prova. Crea un utente anonimo Pro senza dispositivi e a fine test cancella tutto (utente, avvisi, eventi, `processed_spots`, statistiche). Non è nella soluzione: va lanciato a mano.
+
+```
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_... SUPABASE_SECRET_KEY=sb_secret_... dotnet test tests/HamQso.Spots.EndToEnd.Tests
+```
+
 ## Deploy su Coolify
 
 `compose.yaml` (server, Postgres 17, Mosquitto con go-auth). Variabili da impostare in Coolify:
@@ -38,4 +46,4 @@ dotnet user-secrets set "Supabase:SecretKey" "sb_secret_..." --project src/HamQs
 | `MQTT_INGESTOR_PASSWORD` | password dell'utente `ingestor` del broker |
 | `POSTGRES_PASSWORD` | password del Postgres dell'archivio |
 
-Dominio `spot.hamqso.app`: `/health` → server:8080; MQTT su WebSocket → mosquitto:9001 (TLS di Traefik).
+Dominio `spot.hamqso.app`: `/health` → server:8080; `wss://spot.hamqso.app/mqtt` → mosquitto:9001 (TLS di Traefik). Mosquitto ha la configurazione dentro la sua immagine (`deploy/mosquitto/Dockerfile`): Coolify non monta i file del repo (B21). Applicazione Coolify: `HamQSO_Spots` nel progetto HamQSO, deploy automatico a ogni push su `main`.

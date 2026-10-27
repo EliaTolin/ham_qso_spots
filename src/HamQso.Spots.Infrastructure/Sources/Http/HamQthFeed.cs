@@ -28,6 +28,8 @@ public sealed class HamQthFeed : IPolledFeed
             {
                 Dxcc = r.Number("dxcc") is { } dxcc and > 0 ? (int)dxcc : null,
                 Continent = r.Text("continent")?.ToUpperInvariant(),
+                Lotw = r.Bool("lotw"),
+                Eqsl = r.Bool("eqsl"),
             });
         }
         return spots;

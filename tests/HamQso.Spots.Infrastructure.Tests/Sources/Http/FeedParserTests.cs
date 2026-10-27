@@ -19,6 +19,7 @@ public class FeedParserTests
         var first = spots[0];
         Assert.Equal(("K8RLE", 7074.0, "FT8", "US-6701", "US-MI"), (first.Callsign, first.FrequencyKhz, first.Mode, first.Reference, first.Location));
         Assert.Equal(new DateTimeOffset(2026, 10, 27, 11, 43, 53, TimeSpan.Zero), first.SpotTime);
+        Assert.Equal("Haymarsh Lake State Game Land", first.ReferenceName);
         Assert.All(spots, s => Assert.Equal(SpotProgram.Pota, s.Program));
     }
 
@@ -31,6 +32,7 @@ public class FeedParserTests
         Assert.DoesNotContain(spots, s => s.Callsign == "G0TST/P" || s.Callsign == "G0ABC/P");
         var first = spots[0];
         Assert.Equal(("HB9CBR/P", 24904.0, "HB/SO-023"), (first.Callsign, first.FrequencyKhz, first.Reference));
+        Assert.Equal(("Punkt 1239 bei Zentner", "Bruno", 1239, 2), (first.ReferenceName, first.ActivatorName, first.AltitudeM, first.Points));
     }
 
     [Fact]
@@ -43,6 +45,7 @@ public class FeedParserTests
         var first = spots[0];
         Assert.Equal(("HB9CBR/P", 24904.0, "HBFF-0040"), (first.Callsign, first.FrequencyKhz, first.Reference));
         Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1793101495), first.SpotTime);
+        Assert.Equal("Natur park Thal,  Balstahl (SO)", first.ReferenceName);
     }
 
     [Fact]
@@ -54,6 +57,7 @@ public class FeedParserTests
         var first = spots[0];
         Assert.Equal(("DL/HB9BIN/P", 7023.9, "DL1HBT", "DM/BW-003"), (first.Callsign, first.FrequencyKhz, first.Spotters[0], first.Comment));
         Assert.Equal((230, "EU"), (first.Dxcc, first.Continent));
+        Assert.Equal(((bool?)true, (bool?)false), (first.Lotw, first.Eqsl));
         Assert.Equal("", first.Mode);
         Assert.Equal(["HamQTH"], first.Feeds);
     }

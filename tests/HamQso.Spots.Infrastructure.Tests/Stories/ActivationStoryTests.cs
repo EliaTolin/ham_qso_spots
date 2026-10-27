@@ -58,6 +58,7 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
         Spotters = [spotter],
         Mode = "FT8",
         Reference = "I-0123",
+        ReferenceName = "Parco del test",
         Location = "IT-ER",
         Comment = comment,
     };
@@ -82,7 +83,7 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
         var selfSpot = PotaRow("1001", 7074, Ten, "CQ POTA", "IU4ABC");
         await PollPota(Ten.AddSeconds(30), selfSpot);
         var first = Assert.Single(broker.Sent("spots/pota"));
-        Assert.Equal(("IU4ABC_I-0123_40m", 7074.0), (first.SpotKey, first.FrequencyKhz));
+        Assert.Equal(("IU4ABC_I-0123_40m", 7074.0, 1), (first.SpotKey, first.FrequencyKhz, first.SpotCount));
         Assert.Single(alerts.Sent);
 
         // 2. 10:01 the feed sends the same row again (every 30 s): nothing new anywhere.
@@ -97,6 +98,7 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
         var update = Assert.Single(broker.Sent("spots/pota"));
         Assert.Equal(("IU4ABC_I-0123_40m", 7076.0, "TNX 599"), (update.SpotKey, update.FrequencyKhz, update.Comment));
         Assert.True(update.Seq > first.Seq);
+        Assert.Equal(2, update.SpotCount);
         Assert.Empty(alerts.Sent);
 
         // 4. 10:45 the feed still shows the 10:20 spot: nothing goes out.
@@ -114,7 +116,8 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
         var list = await AppOpens();
         Assert.True(list.Full);
         Assert.Equal(["IU4ABC_I-0123_20m", "IU4ABC_I-0123_40m"], list.Spots.Select(s => s.SpotKey));
-        Assert.Equal(7076.0, list.Spots[1].FrequencyKhz);
+        Assert.Equal((7076.0, 2), (list.Spots[1].FrequencyKhz, list.Spots[1].SpotCount));
+        Assert.Equal((1, "Parco del test"), (list.Spots[0].SpotCount, list.Spots[0].ReferenceName));
 
         // 7. An app disconnected since the respot asks what changed: only the QSY.
         var since = await AppOpens(update.Seq);

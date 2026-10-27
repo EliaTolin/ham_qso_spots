@@ -18,6 +18,14 @@ internal static class JsonValues
             && double.TryParse(v.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : null;
     }
 
+    /// <summary>A true/false field; null when missing or not a boolean.</summary>
+    public static bool? Bool(this JsonElement row, string name) =>
+        row.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
+
+    /// <summary>A whole number, also when the feed sends it as text; null otherwise.</summary>
+    public static int? Int(this JsonElement row, string name) =>
+        row.Number(name) is { } n && n == Math.Floor(n) && n is >= int.MinValue and <= int.MaxValue ? (int)n : null;
+
     /// <summary>Id as text, whether the feed sends a number or a string.</summary>
     public static string? Id(this JsonElement row, string name) =>
         !row.TryGetProperty(name, out var v) ? null

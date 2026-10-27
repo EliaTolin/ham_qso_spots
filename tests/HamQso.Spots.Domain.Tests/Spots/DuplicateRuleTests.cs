@@ -31,6 +31,17 @@ public class DuplicateRuleTests
     }
 
     [Fact]
+    public void The_LoTW_and_eQSL_flags_of_HamQTH_survive_the_merge_with_a_telnet_spot()
+    {
+        var telnet = Dx("DXFun");
+        var hamQth = Dx("HamQTH", minutes: 1) with { Lotw = true, Eqsl = false };
+
+        var merged = DuplicateRule.Merge(telnet, hamQth);
+
+        Assert.Equal(((bool?)true, (bool?)false), (merged.Lotw, merged.Eqsl));
+    }
+
+    [Fact]
     public void After_10_minutes_it_is_a_new_spot() =>
         Assert.False(DuplicateRule.IsDuplicate(Dx("DXFun"), Dx("HamQTH", minutes: 11)));
 

@@ -53,6 +53,26 @@ public sealed record Spot
 
     public string? Comment { get; init; }
 
+    /// <summary>Name of the reference: park (POTA, WWFF) or summit (SOTA).</summary>
+    public string? ReferenceName { get; init; }
+
+    /// <summary>Name of the activator, as SOTAwatch gives it.</summary>
+    public string? ActivatorName { get; init; }
+
+    /// <summary>Altitude of the summit in metres (SOTA).</summary>
+    public int? AltitudeM { get; init; }
+
+    /// <summary>Activation points of the summit (SOTA).</summary>
+    public int? Points { get; init; }
+
+    /// <summary>How many times the activation was spotted on this band (xOTA; counted by the archive). DX: 1.</summary>
+    public int SpotCount { get; init; } = 1;
+
+    /// <summary>The station confirms on LoTW / eQSL (HamQTH); null when the source does not tell.</summary>
+    public bool? Lotw { get; init; }
+
+    public bool? Eqsl { get; init; }
+
     /// <summary>Location of the reference as the program gives it (POTA "US-MI"): the US state of an alert.</summary>
     public string? Location { get; init; }
 

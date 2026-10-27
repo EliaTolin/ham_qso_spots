@@ -61,6 +61,7 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
             ModeSource = ModeSource.Reported,
             ModeCategory = ModeCategory.Digital,
             Reference = "US-6701",
+            ReferenceName = "Haymarsh Lake State Game Land",
             Location = "US-MI",
             Latitude = 43.7281,
             Longitude = -85.3554,

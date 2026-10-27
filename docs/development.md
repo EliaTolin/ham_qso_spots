@@ -31,7 +31,7 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 255 tests, about 45 s
+dotnet test                 # 256 tests, about 45 s
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 

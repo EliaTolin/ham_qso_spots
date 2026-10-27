@@ -62,6 +62,8 @@ public static class DuplicateRule
             Dxcc = first.Dxcc ?? next.Dxcc,
             Continent = first.Continent ?? next.Continent,
             SpotterLocator = first.SpotterLocator ?? next.SpotterLocator,
+            Lotw = first.Lotw ?? next.Lotw,
+            Eqsl = first.Eqsl ?? next.Eqsl,
         };
     }
 }

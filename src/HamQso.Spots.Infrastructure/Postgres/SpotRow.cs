@@ -34,6 +34,20 @@ internal sealed record SpotRow
 
     public string? Location { get; init; }
 
+    public string? ReferenceName { get; init; }
+
+    public string? ActivatorName { get; init; }
+
+    public int? AltitudeM { get; init; }
+
+    public int? Points { get; init; }
+
+    public int SpotCount { get; init; } = 1;
+
+    public bool? Lotw { get; init; }
+
+    public bool? Eqsl { get; init; }
+
     public int? Dxcc { get; init; }
 
     public string? Continent { get; init; }
@@ -61,6 +75,13 @@ internal sealed record SpotRow
         ModeCategory = s.ModeCategory is { } category ? SpotJson.Name(category) : null,
         Reference = s.Reference,
         Location = s.Location,
+        ReferenceName = s.ReferenceName,
+        ActivatorName = s.ActivatorName,
+        AltitudeM = s.AltitudeM,
+        Points = s.Points,
+        SpotCount = s.SpotCount,
+        Lotw = s.Lotw,
+        Eqsl = s.Eqsl,
         Dxcc = s.Dxcc,
         Continent = s.Continent,
         Latitude = s.Latitude,
@@ -85,6 +106,13 @@ internal sealed record SpotRow
         ModeCategory = ModeCategory is null ? null : SpotJson.Parse<ModeCategory>(ModeCategory),
         Reference = Reference,
         Location = Location,
+        ReferenceName = ReferenceName,
+        ActivatorName = ActivatorName,
+        AltitudeM = AltitudeM,
+        Points = Points,
+        SpotCount = SpotCount,
+        Lotw = Lotw,
+        Eqsl = Eqsl,
         Dxcc = Dxcc,
         Continent = Continent,
         Latitude = Latitude,

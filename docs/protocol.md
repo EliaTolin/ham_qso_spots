@@ -39,6 +39,12 @@ Every spot, in REST answers and MQTT messages, is a JSON object with these field
 | `mode_source` | string | no | `reported` (by the source, the comment or a skimmer) or `band_plan` (guessed from the frequency); missing when `mode` is `""` |
 | `mode_category` | string | no | `cw`, `phone` or `digital`; missing when unknown |
 | `reference` | string | no | xOTA reference: `US-2907` (POTA), `HB/SO-023` (SOTA), `HBFF-0040` (WWFF) |
+| `reference_name` | string | no | Name of the park (POTA, WWFF) or of the summit (SOTA) |
+| `activator_name` | string | no | Name of the activator (SOTA) |
+| `altitude_m` | integer | no | Altitude of the summit in metres (SOTA) |
+| `points` | integer | no | Activation points of the summit (SOTA) |
+| `spot_count` | integer | yes | How many times the activation was spotted on this band (xOTA, counted by the server); `1` for DX |
+| `lotw`, `eqsl` | boolean | no | The station confirms on LoTW / eQSL (from HamQTH; missing when no source tells) |
 | `location` | string | no | POTA location of the park (`US-SC`) |
 | `dxcc` | integer | no | ADIF DXCC entity of the station |
 | `continent` | string | no | `AF`, `AN`, `AS`, `EU`, `NA`, `OC`, `SA` |

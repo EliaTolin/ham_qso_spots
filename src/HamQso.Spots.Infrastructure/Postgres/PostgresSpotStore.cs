@@ -19,16 +19,22 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
 
     private const string Columns =
         "program, spot_key, callsign, frequency_khz, spot_time, feeds, spotters, band, mode, mode_source, mode_category, " +
-        "reference, location, dxcc, continent, latitude, longitude, comment, spotter_locator";
+        "reference, location, dxcc, continent, latitude, longitude, comment, spotter_locator, " +
+        "reference_name, activator_name, altitude_m, points, lotw, eqsl";
 
     private const string Upsert =
         $"insert into dx_spots ({Columns}) values (@Program, @SpotKey, @Callsign, @FrequencyKhz, @SpotTime, @Feeds, @Spotters, " +
-        "@Band, @Mode, @ModeSource, @ModeCategory, @Reference, @Location, @Dxcc, @Continent, @Latitude, @Longitude, @Comment, @SpotterLocator) " +
+        "@Band, @Mode, @ModeSource, @ModeCategory, @Reference, @Location, @Dxcc, @Continent, @Latitude, @Longitude, @Comment, @SpotterLocator, " +
+        "@ReferenceName, @ActivatorName, @AltitudeM, @Points, @Lotw, @Eqsl) " +
         "on conflict (program, spot_key) do update set callsign = excluded.callsign, frequency_khz = excluded.frequency_khz, " +
         "spot_time = excluded.spot_time, feeds = excluded.feeds, spotters = excluded.spotters, band = excluded.band, " +
         "mode = excluded.mode, mode_source = excluded.mode_source, mode_category = excluded.mode_category, " +
         "reference = excluded.reference, location = excluded.location, dxcc = excluded.dxcc, continent = excluded.continent, " +
         "latitude = excluded.latitude, longitude = excluded.longitude, comment = excluded.comment, spotter_locator = excluded.spotter_locator, " +
+        "reference_name = excluded.reference_name, activator_name = excluded.activator_name, altitude_m = excluded.altitude_m, " +
+        "points = excluded.points, lotw = excluded.lotw, eqsl = excluded.eqsl, " +
+        // A newer spot of the same row is one more spot of the activation (xOTA; a DX key has the time in it).
+        "spot_count = dx_spots.spot_count + (case when excluded.spot_time > dx_spots.spot_time then 1 else 0 end), " +
         "seq = nextval('dx_spots_seq_counter') " +
         // Only a newer spot, or the same moment with something changed (a DX spot confirmed by another feed).
         // An older or identical one changes nothing and gets no seq: SOTA resends its last 50 spots, POTA the
@@ -36,17 +42,20 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
         "where excluded.spot_time > dx_spots.spot_time or (excluded.spot_time = dx_spots.spot_time and (" +
         "excluded.callsign, excluded.frequency_khz, excluded.feeds, excluded.spotters, excluded.band, excluded.mode, " +
         "excluded.mode_source, excluded.mode_category, excluded.reference, excluded.location, excluded.dxcc, " +
-        "excluded.continent, excluded.latitude, excluded.longitude, excluded.comment, excluded.spotter_locator" +
+        "excluded.continent, excluded.latitude, excluded.longitude, excluded.comment, excluded.spotter_locator, " +
+        "excluded.reference_name, excluded.activator_name, excluded.altitude_m, excluded.points, excluded.lotw, excluded.eqsl" +
         ") is distinct from (" +
         "dx_spots.callsign, dx_spots.frequency_khz, dx_spots.feeds, dx_spots.spotters, dx_spots.band, dx_spots.mode, " +
         "dx_spots.mode_source, dx_spots.mode_category, dx_spots.reference, dx_spots.location, dx_spots.dxcc, " +
-        "dx_spots.continent, dx_spots.latitude, dx_spots.longitude, dx_spots.comment, dx_spots.spotter_locator)) " +
-        "returning seq";
+        "dx_spots.continent, dx_spots.latitude, dx_spots.longitude, dx_spots.comment, dx_spots.spotter_locator, " +
+        "dx_spots.reference_name, dx_spots.activator_name, dx_spots.altitude_m, dx_spots.points, dx_spots.lotw, dx_spots.eqsl)) " +
+        "returning seq, spot_count as SpotCount";
 
     private const string Select =
         "select program, seq, spot_key as SpotKey, callsign, frequency_khz as FrequencyKhz, spot_time as SpotTime, feeds, spotters, band, mode, " +
         "mode_source as ModeSource, mode_category as ModeCategory, reference, location, dxcc, continent, latitude, longitude, comment, " +
-        "spotter_locator as SpotterLocator from dx_spots";
+        "spotter_locator as SpotterLocator, reference_name as ReferenceName, activator_name as ActivatorName, altitude_m as AltitudeM, " +
+        "points, spot_count as SpotCount, lotw, eqsl from dx_spots";
 
     /// <summary>Program, bands and modes of a <see cref="SpotFilter"/>; "other" is a null band or mode.</summary>
     private const string Where =
@@ -77,9 +86,9 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
             var saved = new List<Spot>(spots.Count);
             foreach (var spot in spots)
             {
-                // No row back: an older spot of a row already newer, not saved.
-                var seq = await connection.ExecuteScalarAsync<long?>(new CommandDefinition(Upsert, SpotRow.From(spot), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-                if (seq is { } s) saved.Add(spot with { Seq = s });
+                // No row back: an older or identical spot of a row already saved, not saved again.
+                var row = await connection.QuerySingleOrDefaultAsync<SavedRow>(new CommandDefinition(Upsert, SpotRow.From(spot), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+                if (row is not null) saved.Add(spot with { Seq = row.Seq, SpotCount = row.SpotCount });
             }
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             health.Succeeded(HealthName);
@@ -136,4 +145,7 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new SpotPage(seq, false, [.. rows.Select(r => r.ToSpot())]);
     }
+
+    /// <summary>What a save returns: the new seq and the spot count of the row.</summary>
+    private sealed record SavedRow(long Seq, int SpotCount);
 }

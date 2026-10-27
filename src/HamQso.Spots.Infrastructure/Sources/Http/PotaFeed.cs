@@ -28,6 +28,7 @@ public sealed class PotaFeed : IPolledFeed
                 Spotters = r.Text("spotter") is { } spotter ? [spotter.ToUpperInvariant()] : [],
                 Mode = r.Text("mode")?.ToUpperInvariant() ?? "",
                 Reference = r.Text("reference")?.ToUpperInvariant(),
+                ReferenceName = r.Text("name") ?? r.Text("parkName"),
                 Location = r.Text("locationDesc")?.ToUpperInvariant(),
                 Latitude = r.Number("latitude"),
                 Longitude = r.Number("longitude"),

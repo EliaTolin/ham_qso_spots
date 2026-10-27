@@ -31,6 +31,7 @@ public sealed partial class WwffFeed : IPolledFeed
                 Spotters = r.Text("spotter") is { } spotter ? [spotter.ToUpperInvariant()] : [],
                 Mode = r.Text("mode")?.ToUpperInvariant() ?? "",
                 Reference = r.Text("reference")?.ToUpperInvariant(),
+                ReferenceName = r.Text("reference_name"),
                 Latitude = r.Number("latitude"),
                 Longitude = r.Number("longitude"),
                 Comment = remarks,

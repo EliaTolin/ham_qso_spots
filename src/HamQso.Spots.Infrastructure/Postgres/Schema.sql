@@ -41,3 +41,13 @@ create index if not exists dx_spots_program_time_idx on dx_spots (program, spot_
 -- ("K8RLE_US-6701_40m"). Rows saved before with the program's own id as key
 -- (digits only, no "_") are removed; the feeds send the current ones again.
 delete from dx_spots where program <> 'dx' and position('_' in spot_key) = 0;
+
+-- Details for the apps (27/10/2026): reference name, SOTA summit data, how many
+-- times an activation was spotted (counted here, +1 at every newer spot), LoTW/eQSL.
+alter table dx_spots add column if not exists reference_name text;
+alter table dx_spots add column if not exists activator_name text;
+alter table dx_spots add column if not exists altitude_m integer;
+alter table dx_spots add column if not exists points integer;
+alter table dx_spots add column if not exists spot_count integer not null default 1;
+alter table dx_spots add column if not exists lotw boolean;
+alter table dx_spots add column if not exists eqsl boolean;

@@ -7,7 +7,7 @@ How an app (or any client) gets spots from the spots server. Two channels, one m
 
 There is no "remove" and no expiry: a spot is shown with its age ("5 min ago") from `spot_time`; hiding old spots is a choice of the client.
 
-All examples below are real answers of the production server (27/10/2026).
+All examples below are real answers of the production server (27/10/2026; the POTA `spot_key` is shown in the activation form introduced the same evening).
 
 ## Authentication
 
@@ -28,7 +28,7 @@ Every spot, in REST answers and MQTT messages, is a JSON object with these field
 |---|---|---|---|
 | `program` | string | yes | `dx`, `pota`, `sota` or `wwff` |
 | `seq` | integer | yes | Order of the save on the server: grows at every new **or updated** spot, across all programs (see [seq](#seq)) |
-| `spot_key` | string | yes | Identity of the spot within its program. DX: `CALL_kHz_yyyyMMddHHmm` (`SQ8V_3573.0_202610271853`); xOTA: the id of the program's own spot |
+| `spot_key` | string | yes | Identity of the spot within its program. DX: `CALL_kHz_yyyyMMddHHmm` (`SQ8V_3573.0_202610271853`); xOTA: the activation on its band, `CALL_REFERENCE_BAND` (`K4RCY_US-2907_20m`): one row per activation and band, updated by every new spot of it |
 | `callsign` | string | yes | The station spotted, uppercase |
 | `frequency_khz` | number | yes | Frequency in kHz (`14025`, `21074.5`) |
 | `spot_time` | string | yes | ISO 8601 UTC time of the spot (`2026-10-27T18:53:00+00:00`) |
@@ -73,7 +73,7 @@ A POTA spot:
 {
   "program": "pota",
   "seq": 7919,
-  "spot_key": "59576053",
+  "spot_key": "K4RCY_US-2907_20m",
   "callsign": "K4RCY",
   "frequency_khz": 14080,
   "spot_time": "2026-10-27T18:52:38+00:00",
@@ -93,7 +93,7 @@ A POTA spot:
 }
 ```
 
-The same spot comes again, with a **new `seq`**, when it changes: another source reports it (a new entry in `feeds`, maybe a reported mode instead of a band plan guess). Clients replace a spot they already have by `program` + `spot_key`.
+The same spot comes again, with a **new `seq`**, when it changes. DX: another source reports it (a new entry in `feeds`, maybe a reported mode instead of a band plan guess). xOTA: the activation is spotted again on the same band (new frequency, time, comment). Clients replace a spot they already have by `program` + `spot_key`. A spot identical to the one already saved, or older, never comes again.
 
 ## The message
 
@@ -127,7 +127,7 @@ Authorization: Bearer <access_token>
 | `program` | yes | `dx`, `pota`, `sota`, `wwff` |
 | `band` | no | A band (`160m`, `80m`, `60m`, `40m`, `30m`, `20m`, `17m`, `15m`, `12m`, `10m`, `6m`, `4m`, `2m`, `70cm`, `23cm`) or `other` (no band). Repeat it or separate with commas. None = all |
 | `mode` | no | `cw`, `phone`, `digital` or `other` (unknown). Repeat it or separate with commas. None = all |
-| `limit` | no | 1 to 200; default and maximum 200 (values above are lowered to 200) |
+| `limit` | no | A whole number; default and maximum 200 (above 200 counts as 200, 0 as 1); a negative or non-numeric value is a `400` |
 | `since_seq` | no | The highest seq the client has applied |
 
 What comes back:
@@ -192,7 +192,7 @@ A message on `spots/dx/80m/digital`:
 }
 ```
 
-A connection with a missing or invalid token is refused (`NotAuthorized`); a publish by a client is refused (MQTT 5 `NotAuthorized`); subscribing outside `spots/…` (`#`, `$SYS/#`) is refused.
+A connection with a missing or invalid token is refused (the broker does not return success); a publish by a client is refused (MQTT 5 `NotAuthorized`); subscribing outside `spots/…` (`#`, `$SYS/#`) is refused.
 
 ## The client algorithm
 
@@ -207,7 +207,7 @@ on open (and on every reconnection):
   4. keep the highest seq applied
 
 apply a message:  for each spot, insert or replace by (program, spot_key)
-show:             newest spot_time first; age from spot_time; trim your list as you like (the server keeps 200 per filter)
+show:             newest spot_time first; age from spot_time; trim your list as you like (the server returns at most 200 per answer)
 ```
 
 Notes:

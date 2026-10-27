@@ -2,7 +2,7 @@ namespace HamQso.Spots.Domain.Spots;
 
 /// <summary>
 /// MQTT topics: spots/dx/&lt;band&gt;/&lt;mode&gt; for the DX cluster, spots/&lt;program&gt;
-/// for xOTA. Every message is the whole current list of its topic, retained.
+/// for xOTA. Every message carries the news of its topic (not retained).
 /// </summary>
 public static class SpotTopics
 {

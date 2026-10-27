@@ -58,10 +58,10 @@ One batch at a time, whatever the source:
 1. **Enrich** (`SpotEnrichment`): band from the frequency; DXCC and continent from the callsign prefix (unless the source gives them, as HamQTH does); mode.
 2. **Merge duplicates** (`InMemorySpotDeduplicator`, rule in `DuplicateRule`):
    - DX: same callsign, same kHz rounded, at most 10 minutes apart → one spot. Feeds and spotters are joined; a mode reported by a source wins over a band plan guess.
-   - xOTA: the same id of the program's own spot.
-   - Outcome: new, merged (something added), or unchanged (dropped).
-   - Memory forgets spots older than 20 minutes; at startup it is reloaded from the archive (last 20 minutes), so a restart neither republishes nor re-alerts.
-3. **Save** new and merged spots in Postgres; every save gets the next `seq` (sequence `dx_spots_seq_counter`), also on update.
+   - xOTA: the same activation on the same band, at any distance in time: the key is `CALL_REFERENCE_BAND` (set by the enrichment). The newer spot wins (frequency, mode, time, comment); an older one changes nothing. Another band is another spot. Before this rule every respot had a new POTA id: the 200 latest POTA spots were 66 activations of the last 7 minutes.
+   - Outcome: new, merged (something added or newer), or unchanged (dropped).
+   - Memory forgets DX spots after 20 minutes and xOTA spots after 6 hours (as long as Supabase keeps alerted keys in `processed_spots`, so a respot of the same activation never alerts again, and the same activation the next day does). At startup the last 6 hours are reloaded from the archive, so a restart neither republishes nor re-alerts.
+3. **Save** new and merged spots in Postgres; every save gets the next `seq` (sequence `dx_spots_seq_counter`), also on update. The save only happens for a newer spot, or the same moment with something changed: an identical or older one (SOTA resends its last 50 spots, POTA the latest of every activation) changes nothing and gets no seq, so it is not published again.
 4. **Publish** the saved spots on their topics (`spots/dx/<band>/<mode>`, `spots/<program>`), only after the save: a spot without seq is never published.
 5. **Alert**: new spots at most 15 minutes old (a telnet backlog after a reconnection never alerts) go to Supabase.
 
@@ -75,7 +75,7 @@ The DX cluster has no mode field. The mode is, in this order: the one decoded by
 
 ## Archive
 
-Table `dx_spots`, primary key `(program, spot_key)`, with `seq` (unique, growing), indexes on `seq`, `spot_time`, `(program, spot_time desc)`, `(callsign, spot_time desc)`. The schema (`Postgres/Schema.sql`) is applied at every startup and is idempotent; it upgraded the first production table (without `seq`) in place. A worker deletes rows older than 7 days every hour. No backup on purpose: 7 days of spots refill on their own.
+Table `dx_spots`, primary key `(program, spot_key)`, with `seq` (from a sequence, so unique and growing; indexed, without a unique constraint), indexes on `seq`, `spot_time`, `(program, spot_time desc)`, `(callsign, spot_time desc)`. The schema (`Postgres/Schema.sql`) is applied at every startup and is idempotent; it upgraded the first production table (without `seq`) in place, and removed the xOTA rows keyed by the program's own id when the activation key came. A worker deletes rows older than 7 days every hour. No backup on purpose: 7 days of spots refill on their own.
 
 Saves come one batch at a time, so a reader never sees a seq whose earlier seqs are not committed yet; the REST lists read the current seq and the rows in one repeatable-read transaction.
 
@@ -94,7 +94,7 @@ The full contract for clients is in [protocol.md](protocol.md).
 
 - **Apps** connect to Mosquitto with the Supabase access token as password. `mosquitto-go-auth` (HTTP backend) asks the server: `POST /mqtt/user` (who may connect), `/mqtt/acl` (who may read or write a topic), `/mqtt/superuser` (always no).
 - **Rules** (`MqttAccess`): a valid Supabase token may read and subscribe `spots/…`; only the `ingestor` account (password from configuration, compared in constant time) may write; nobody may use other topics; the name `ingestor` never logs in with a token.
-- **Tokens** (`SupabaseJwtValidator`): ES256 signature checked with the project's public keys (JWKS), issuer `https://<project>.supabase.co/auth/v1`, audience `authenticated`, expiry. Keys cached 10 minutes; an unknown key id forces a refresh at most once a minute; if Supabase does not answer, the cached keys are kept and the token is refused.
+- **Tokens** (`SupabaseJwtValidator`): ES256 signature checked with the project's public keys (JWKS), issuer `https://<project>.supabase.co/auth/v1`, audience `authenticated`, expiry. Keys cached 10 minutes; an unknown key id forces a refresh at most once a minute; if Supabase does not answer, the cached keys are kept (tokens signed with them are still accepted, others are refused).
 - **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
 - `/health` is public and shows only the state of each entry, never error messages (those go to the log).
 
@@ -109,6 +109,7 @@ The full contract for clients is in [protocol.md](protocol.md).
 | Own server and broker on Coolify, not Supabase Realtime | No cost per message and no 500-connection cap; the ingestor runs anyway |
 | News over MQTT + starting list over REST, no retained lists | The first version retained whole lists per topic: a POTA update (~34 KB) to 500 clients was 17 MB and delivery reached 17 s. With news only, 500 clients get them within 0.9 s |
 | No remove, no expiry; the client shows the age | As Ham2K PoLo: the spot time is enough, the server knows nothing about "active" |
+| xOTA: one row per activation and band | The REST list of 200 covers all the running activations instead of the last few minutes of respots |
 | `seq` from Postgres | One order for MQTT and REST; `since_seq` after a disconnection is a plain query |
 | No compression | Decided for simplicity |
 | Alerts stay in Supabase (`alert_spots`) | Matching, pushes, US states and statistics in one place for the cron, the server and the self-spots |

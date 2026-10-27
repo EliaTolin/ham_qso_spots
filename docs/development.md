@@ -31,7 +31,7 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 245 tests, about 40 s
+dotnet test                 # 255 tests, about 45 s
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 
@@ -39,6 +39,7 @@ Coverage on 27/10/2026: 98.2% (Domain 100%, Infrastructure 99.3%, Host 95.5%, Ap
 
 | Kind | Where | Notes |
 |---|---|---|
+| User stories | `Infrastructure.Tests/Stories` | An activation (self-spot, respot, band change, restart, next day), a SOTA activator, a DX station heard by three sources: real ingestion, real Postgres, real `GetSpots` |
 | Pure rules | `Domain.Tests` | Band plan: the 57 cases of `Fixtures/band_plan_cases.json`, a copy of `ham_qso_supabase/supabase/functions/_shared/band_plan_cases.json` (keep them identical; the app has the same file) |
 | Use cases | `Application.Tests` | Fakes for every port; a fake store gives growing seqs as Postgres does |
 | Sources | `Infrastructure.Tests/Sources` | Real answers recorded on 27/10/2026 in `Fixtures/` plus malformed rows; telnet against a fake node on loopback |
@@ -49,9 +50,17 @@ Test names are sentences (`After_10_minutes_it_is_a_new_spot`); the analyzer rul
 
 ## Running it locally
 
+With Docker Compose (the whole stack; the secrets come from the env file, not from user secrets):
+
+```
+docker compose --env-file my.env up --build        # my.env: POSTGRES_PASSWORD, MQTT_INGESTOR_PASSWORD, SUPABASE_SECRET_KEY
+```
+
+Or only the server with `dotnet run --project src/HamQso.Spots.Host` (Development environment), with a Postgres and a Mosquitto of your own and the secrets in user secrets:
+
 ```
 dotnet user-secrets set "Supabase:SecretKey" "sb_secret_..." --project src/HamQso.Spots.Host
-docker compose --env-file my.env up --build        # my.env: POSTGRES_PASSWORD, MQTT_INGESTOR_PASSWORD, SUPABASE_SECRET_KEY
+dotnet user-secrets set "Mqtt:Password" "..." --project src/HamQso.Spots.Host
 ```
 
 Locally nothing publishes `spot.hamqso.app`; map the ports in a compose override if needed (`server:8080`, `mosquitto:1883/9001`). The real sources are used: the server logs in to the telnet nodes as `N0CALL-87` like production. Alerts go to the real `alert_spots`: use a key of a test project, or expect real alerts.
@@ -96,7 +105,7 @@ Prints (and copies) an access token of a development anonymous user, always the 
 - **Another HTTP feed** (RBN aggregate, PSKReporter by HTTP, a new activity program):
   1. record a real answer in `tests/HamQso.Spots.Infrastructure.Tests/Fixtures/`, add a malformed row;
   2. write the parser tests (count, first spot, skipped rows);
-  3. implement `IPolledFeed` in `Sources/Http/` (pure `Parse`); a new program also needs a `SpotProgram` value, its topic and the REST `program` value;
+  3. implement `IPolledFeed` in `Sources/Http/` (pure `Parse`); a new program also needs a `SpotProgram` value (its topic follows from it) and an entry in the REST `program` map of `SpotQueryParser` (with its error text);
   4. add it to `SpotSourceFactory.Feeds` with its default interval and to `Feeds` in `appsettings.json`.
 - **A streaming source** (another protocol): implement `ISpotSource` directly, report to `ISourceHealth`, reconnect on your own; register it in `SpotSourceFactory`.
 

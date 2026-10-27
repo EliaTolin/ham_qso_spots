@@ -70,17 +70,15 @@ public sealed partial class IngestSpots(
 
             if (changed.Length > 0) await RunAsync("save", () => store.SaveAsync(changed, cancellationToken)).ConfigureAwait(false);
 
-            if (batch.SnapshotOf is { } program)
-            {
-                await PublishSnapshotAsync(program, results.Select(r => r.Spot).ToArray(), cancellationToken).ConfigureAwait(false);
-            }
-            else if (changed.Length > 0)
-            {
-                await PublishDxAsync(recentDx.Apply(changed), cancellationToken).ConfigureAwait(false);
-            }
+            // Side by side: a broker that does not answer must not hold the alerts back (B21).
+            var publishing = batch.SnapshotOf is { } program
+                ? PublishSnapshotAsync(program, results.Select(r => r.Spot).ToArray(), cancellationToken)
+                : changed.Length > 0 ? PublishDxAsync(recentDx.Apply(changed), cancellationToken) : Task.CompletedTask;
 
             var alertable = fresh.Where(s => time.GetUtcNow() - s.SpotTime <= AlertFreshness).ToArray();
-            if (alertable.Length > 0) await RunAsync("alerts", () => alerts.NotifyAsync(alertable, cancellationToken)).ConfigureAwait(false);
+            var alerting = alertable.Length > 0 ? RunAsync("alerts", () => alerts.NotifyAsync(alertable, cancellationToken)) : Task.CompletedTask;
+
+            await Task.WhenAll(publishing, alerting).ConfigureAwait(false);
         }
         finally
         {

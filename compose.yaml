@@ -32,10 +32,10 @@ services:
       retries: 5
 
   mosquitto:
-    image: iegomez/mosquitto-go-auth:3.0.0-mosquitto_2.0.18
+    # Configuration inside the image (deploy/mosquitto/Dockerfile): no repo file is mounted.
+    build: deploy/mosquitto
     restart: unless-stopped
     volumes:
-      - ./deploy/mosquitto/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
     expose:
       - "1883"

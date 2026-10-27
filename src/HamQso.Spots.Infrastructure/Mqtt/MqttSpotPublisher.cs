@@ -10,12 +10,22 @@ namespace HamQso.Spots.Infrastructure.Mqtt;
 /// <summary>
 /// Publishes every topic list to Mosquitto as one retained message (QoS 1), so an
 /// app that connects gets the current lists at once. Connects on first use and
-/// again after a drop.
+/// again after a drop. A broker that does not answer fails fast (B21): at most
+/// <see cref="ConnectTimeout"/> per attempt, then no new attempt for
+/// <see cref="RetryAfter"/>; /health shows it as "broker".
 /// </summary>
-public sealed class MqttSpotPublisher(IOptions<MqttOptions> options) : ISpotPublisher, IAsyncDisposable
+public sealed class MqttSpotPublisher(IOptions<MqttOptions> options, ISourceHealth health, TimeProvider time) : ISpotPublisher, IAsyncDisposable
 {
+    /// <summary>Name of the broker in /health.</summary>
+    public const string HealthName = "broker";
+
+    public static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
+
+    public static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(10);
+
     private readonly IMqttClient client = new MqttClientFactory().CreateMqttClient();
     private readonly SemaphoreSlim connecting = new(1, 1);
+    private DateTimeOffset retryAt = DateTimeOffset.MinValue;
 
     public async Task PublishAsync(string topic, IReadOnlyList<Spot> spots, CancellationToken cancellationToken)
     {
@@ -27,7 +37,9 @@ public sealed class MqttSpotPublisher(IOptions<MqttOptions> options) : ISpotPubl
             .WithRetainFlag()
             .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
             .Build();
-        var result = await client.PublishAsync(message, cancellationToken).ConfigureAwait(false);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ConnectTimeout);
+        var result = await client.PublishAsync(message, timeout.Token).ConfigureAwait(false);
         if (!result.IsSuccess) throw new InvalidOperationException($"MQTT publish to {topic} failed: {result.ReasonCode}");
     }
 
@@ -45,14 +57,28 @@ public sealed class MqttSpotPublisher(IOptions<MqttOptions> options) : ISpotPubl
         try
         {
             if (client.IsConnected) return;
+            if (time.GetUtcNow() < retryAt) throw new InvalidOperationException("MQTT broker unavailable, next attempt later");
             var o = options.Value;
             var connect = new MqttClientOptionsBuilder()
                 .WithTcpServer(o.Host, o.Port)
                 .WithClientId(o.ClientId)
                 .WithCredentials(o.Username, o.Password)
                 .WithCleanSession()
+                .WithTimeout(ConnectTimeout)
                 .Build();
-            await client.ConnectAsync(connect, cancellationToken).ConfigureAwait(false);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(ConnectTimeout);
+            try
+            {
+                await client.ConnectAsync(connect, timeout.Token).ConfigureAwait(false);
+                health.Succeeded(HealthName);
+            }
+            catch (Exception e) when (!cancellationToken.IsCancellationRequested)
+            {
+                retryAt = time.GetUtcNow() + RetryAfter;
+                health.Failed(HealthName, e.Message);
+                throw new InvalidOperationException($"MQTT broker {o.Host}:{o.Port} not reachable", e);
+            }
         }
         finally
         {

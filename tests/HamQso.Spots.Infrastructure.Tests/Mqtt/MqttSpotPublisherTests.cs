@@ -1,6 +1,7 @@
 using System.Text;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
+using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure.Mqtt;
 using Microsoft.Extensions.Options;
@@ -30,7 +31,7 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
             Port = mosquitto.GetMappedPublicPort(1883),
             Username = "ingestor",
             Password = "test",
-        }));
+        }), new NoHealth(), TimeProvider.System);
     }
 
     public async ValueTask DisposeAsync()
@@ -94,5 +95,16 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
         await Task.Delay(1000, TestContext.Current.CancellationToken);
         await client.DisconnectAsync(cancellationToken: TestContext.Current.CancellationToken);
         lock (received) return [.. received];
+    }
+
+    private sealed class NoHealth : ISourceHealth
+    {
+        public void Succeeded(string source)
+        {
+        }
+
+        public void Failed(string source, string reason)
+        {
+        }
     }
 }

@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
             ?? throw new InvalidOperationException("ConnectionStrings:Spots is missing")));
         services.AddSingleton<PostgresSpotStore>();
         services.AddSingleton<ISpotStore>(sp => sp.GetRequiredService<PostgresSpotStore>());
+        services.AddSingleton<ISourceHealth>(sp => sp.GetRequiredService<SourceHealthRegistry>());
         services.AddSingleton<ISpotPublisher, MqttSpotPublisher>();
         services.AddHttpClient<IAlertNotifier, SupabaseAlertNotifier>();
         services.AddHttpClient<ITokenValidator, SupabaseJwtValidator>();

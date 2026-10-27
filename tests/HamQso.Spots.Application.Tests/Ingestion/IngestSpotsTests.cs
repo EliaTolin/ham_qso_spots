@@ -128,6 +128,30 @@ public sealed class IngestSpotsTests : IDisposable
         Assert.Single(publisher.Last("spots/dx/20m/cw"));
     }
 
+    [Fact]
+    public async Task With_the_broker_not_answering_a_new_spot_reaches_the_alerts_within_seconds()
+    {
+        var hanging = new HangingPublisher();
+        using var withHangingBroker = new IngestSpots(new InMemorySpotDeduplicator(time), store, hanging, alerts, time, NullLogger<IngestSpots>.Instance);
+
+        var handling = withHangingBroker.HandleAsync(new SpotBatch("DXFun", [Dx("JA1ABC", 14025.0, "DXFun")]), CancellationToken.None);
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (alerts.Notified.Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(20, TestContext.Current.CancellationToken);
+
+        Assert.Single(alerts.Notified);
+        hanging.Release();
+        await handling;
+    }
+
+    private sealed class HangingPublisher : ISpotPublisher
+    {
+        private readonly TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Release() => released.TrySetResult();
+
+        public Task PublishAsync(string topic, IReadOnlyList<Spot> spots, CancellationToken cancellationToken) => released.Task;
+    }
+
     private sealed class FakeStore : ISpotStore
     {
         public List<Spot> Archive { get; } = [];

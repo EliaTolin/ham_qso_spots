@@ -1,6 +1,7 @@
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
 using HamQso.Spots.Application.Ports;
+using HamQso.Spots.Infrastructure.Mqtt;
 using HamQso.Spots.Infrastructure.Postgres;
 
 namespace HamQso.Spots.Host;
@@ -34,6 +35,7 @@ public sealed partial class IngestionWorker(
         await ingest.StartAsync(stoppingToken);
         var list = sources.ToArray();
         foreach (var source in list) health.Register(source.Name);
+        health.Register(MqttSpotPublisher.HealthName);
         await Task.WhenAll(list.Select(s => RunAsync(s, stoppingToken)));
     }
 

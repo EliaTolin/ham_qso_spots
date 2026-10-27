@@ -5,7 +5,7 @@ namespace HamQso.Spots.Application.Dedup;
 
 /// <summary>
 /// Dedup in the process memory, reloaded from the archive at startup. Entries
-/// older than twice the window are forgotten. Not thread safe: the ingestion
+/// are forgotten after <see cref="DuplicateRule.MemoryOf"/> (DX 20 min, xOTA 6 h). Not thread safe: the ingestion
 /// handles one batch at a time.
 /// </summary>
 public sealed class InMemorySpotDeduplicator(TimeProvider time) : ISpotDeduplicator
@@ -49,10 +49,9 @@ public sealed class InMemorySpotDeduplicator(TimeProvider time) : ISpotDeduplica
         var now = time.GetUtcNow();
         if (now - lastSweep < DuplicateRule.Window) return;
         lastSweep = now;
-        var horizon = now - (2 * DuplicateRule.Window);
         foreach (var (key, seen) in byKey.ToArray())
         {
-            seen.RemoveAll(s => s.SpotTime < horizon);
+            seen.RemoveAll(s => s.SpotTime < now - DuplicateRule.MemoryOf(s.Program));
             if (seen.Count == 0) byKey.Remove(key);
         }
     }

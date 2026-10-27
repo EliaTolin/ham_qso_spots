@@ -57,6 +57,18 @@ public sealed class BrokerTests : IAsyncLifetime
         Assert.Contains(since.Spots, s => s.SpotKey == spot.SpotKey);
     }
 
+    [Theory]
+    [InlineData("pota")]
+    [InlineData("sota")]
+    [InlineData("wwff")]
+    public async Task The_activity_lists_have_one_row_per_activation_and_band(string program)
+    {
+        var page = await Api.GetAsync(user.AccessToken, $"?program={program}", TestContext.Current.CancellationToken);
+
+        var repeated = page.Spots.GroupBy(s => (s.Callsign, s.Reference, s.Band)).Where(g => g.Count() > 1).Select(g => g.Key).ToArray();
+        Assert.Empty(repeated);
+    }
+
     [Fact]
     public async Task Without_a_valid_token_the_starting_list_is_refused()
     {

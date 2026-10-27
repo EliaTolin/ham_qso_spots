@@ -36,3 +36,8 @@ alter table dx_spots alter column seq set default nextval('dx_spots_seq_counter'
 alter table dx_spots alter column seq set not null;
 create index if not exists dx_spots_seq_idx on dx_spots (seq);
 create index if not exists dx_spots_program_time_idx on dx_spots (program, spot_time desc);
+
+-- Activation key (27/10/2026): xOTA spots are one row per activation and band
+-- ("K8RLE_US-6701_40m"). Rows saved before with the program's own id as key
+-- (digits only, no "_") are removed; the feeds send the current ones again.
+delete from dx_spots where program <> 'dx' and position('_' in spot_key) = 0;

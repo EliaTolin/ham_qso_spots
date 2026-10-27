@@ -3,7 +3,7 @@ using HamQso.Spots.Domain.Radio;
 
 namespace HamQso.Spots.Domain.Spots;
 
-/// <summary>Band, DXCC, continent and mode, computed once for every feed.</summary>
+/// <summary>Band, DXCC, continent and mode, computed once for every feed; xOTA spots get their activation key.</summary>
 public static class SpotEnrichment
 {
     public static Spot Enrich(Spot spot)
@@ -13,7 +13,7 @@ public static class SpotEnrichment
         var (mode, source) = spot.ModeSource is null || spot.Mode.Length == 0
             ? ResolveMode(spot, dxcc, continent)
             : (spot.Mode, spot.ModeSource);
-        return spot with
+        var enriched = spot with
         {
             Band = spot.Band ?? Bands.Of(spot.FrequencyKhz),
             Dxcc = dxcc,
@@ -22,6 +22,7 @@ public static class SpotEnrichment
             ModeSource = source,
             ModeCategory = BandPlan.CategoryOf(mode),
         };
+        return enriched.Program == SpotProgram.Dx ? enriched : enriched with { SpotKey = DuplicateRule.ActivationKey(enriched) };
     }
 
     /// <summary>xOTA feeds report the mode; the DX cluster only has the comment and the frequency.</summary>

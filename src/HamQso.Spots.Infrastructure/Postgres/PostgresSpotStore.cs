@@ -30,6 +30,17 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
         "reference = excluded.reference, location = excluded.location, dxcc = excluded.dxcc, continent = excluded.continent, " +
         "latitude = excluded.latitude, longitude = excluded.longitude, comment = excluded.comment, spotter_locator = excluded.spotter_locator, " +
         "seq = nextval('dx_spots_seq_counter') " +
+        // Only a newer spot, or the same moment with something changed (a DX spot confirmed by another feed).
+        // An older or identical one changes nothing and gets no seq: SOTA resends its last 50 spots, POTA the
+        // latest of every activation, and the dedup forgets after 20 min.
+        "where excluded.spot_time > dx_spots.spot_time or (excluded.spot_time = dx_spots.spot_time and (" +
+        "excluded.callsign, excluded.frequency_khz, excluded.feeds, excluded.spotters, excluded.band, excluded.mode, " +
+        "excluded.mode_source, excluded.mode_category, excluded.reference, excluded.location, excluded.dxcc, " +
+        "excluded.continent, excluded.latitude, excluded.longitude, excluded.comment, excluded.spotter_locator" +
+        ") is distinct from (" +
+        "dx_spots.callsign, dx_spots.frequency_khz, dx_spots.feeds, dx_spots.spotters, dx_spots.band, dx_spots.mode, " +
+        "dx_spots.mode_source, dx_spots.mode_category, dx_spots.reference, dx_spots.location, dx_spots.dxcc, " +
+        "dx_spots.continent, dx_spots.latitude, dx_spots.longitude, dx_spots.comment, dx_spots.spotter_locator)) " +
         "returning seq";
 
     private const string Select =
@@ -54,6 +65,7 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
         await connection.ExecuteAsync(new CommandDefinition(sql, cancellationToken: cancellationToken)).ConfigureAwait(false);
     }
 
+    /// <summary>Saves new and newer spots; returns those saved, with their seq (an older spot of a newer row is left out).</summary>
     public async Task<IReadOnlyList<Spot>> SaveAsync(IReadOnlyCollection<Spot> spots, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(spots);
@@ -65,8 +77,9 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
             var saved = new List<Spot>(spots.Count);
             foreach (var spot in spots)
             {
-                var seq = await connection.ExecuteScalarAsync<long>(new CommandDefinition(Upsert, SpotRow.From(spot), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-                saved.Add(spot with { Seq = seq });
+                // No row back: an older spot of a row already newer, not saved.
+                var seq = await connection.ExecuteScalarAsync<long?>(new CommandDefinition(Upsert, SpotRow.From(spot), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+                if (seq is { } s) saved.Add(spot with { Seq = s });
             }
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             health.Succeeded(HealthName);

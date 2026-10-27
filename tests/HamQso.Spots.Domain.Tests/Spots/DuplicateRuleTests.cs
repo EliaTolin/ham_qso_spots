@@ -49,11 +49,48 @@ public class DuplicateRuleTests
         Assert.Equal(("RTTY", (ModeSource?)ModeSource.Reported, (ModeCategory?)ModeCategory.Digital), (merged.Mode, merged.ModeSource, merged.ModeCategory));
     }
 
-    [Fact]
-    public void Xota_spots_merge_only_by_their_own_id()
+    private static Spot Pota(string id, double khz = 7074, int minutes = 0, string reference = "US-6701", string call = "K8RLE") => SpotEnrichment.Enrich(new Spot
     {
-        var pota = Dx("POTA") with { Program = SpotProgram.Pota, SpotKey = "123" };
-        Assert.True(DuplicateRule.IsDuplicate(pota, pota with { FrequencyKhz = 7100 }));
-        Assert.False(DuplicateRule.IsDuplicate(pota, pota with { SpotKey = "124" }));
+        Program = SpotProgram.Pota,
+        SpotKey = id,
+        Callsign = call,
+        FrequencyKhz = khz,
+        SpotTime = T0.AddMinutes(minutes),
+        Feeds = ["POTA"],
+        Mode = "FT8",
+        Reference = reference,
+        Comment = $"spot {id}",
+    });
+
+    [Fact]
+    public void An_xOTA_spot_is_keyed_by_its_activation_and_band_not_by_the_program_id()
+    {
+        Assert.Equal("K8RLE_US-6701_40m", Pota("59545154").SpotKey);
+    }
+
+    [Fact]
+    public void A_new_spot_of_the_same_activation_and_band_updates_it_hours_later_too()
+    {
+        var first = Pota("1");
+        var respot = Pota("2", khz: 7076, minutes: 180);
+
+        Assert.True(DuplicateRule.IsDuplicate(first, respot));
+        var merged = DuplicateRule.Merge(first, respot);
+        Assert.Equal((7076.0, T0.AddMinutes(180), "spot 2"), (merged.FrequencyKhz, merged.SpotTime, merged.Comment));
+    }
+
+    [Fact]
+    public void An_older_spot_of_the_activation_never_replaces_the_newer_one()
+    {
+        var newer = Pota("2", khz: 7076, minutes: 30);
+
+        Assert.Equal(newer, DuplicateRule.Merge(newer, Pota("1")));
+    }
+
+    [Fact]
+    public void Another_band_or_another_reference_is_another_spot()
+    {
+        Assert.False(DuplicateRule.IsDuplicate(Pota("1"), Pota("2", khz: 14074)));
+        Assert.False(DuplicateRule.IsDuplicate(Pota("1"), Pota("2", reference: "US-0001")));
     }
 }

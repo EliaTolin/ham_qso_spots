@@ -201,6 +201,66 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
         Assert.Equal(["archive"], down.Failures);
     }
 
+    [Fact]
+    public async Task An_older_spot_of_the_same_activation_never_overwrites_the_newer_row()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var newer = Pota("2") with { FrequencyKhz = 7076, SpotTime = Now.AddMinutes(30) };
+        await store.SaveAsync([newer], ct);
+
+        // SOTA sends its last 50 spots every minute: an old one comes back after the dedup forgot it.
+        var saved = await store.SaveAsync([Pota("1")], ct);
+
+        Assert.Empty(saved);
+        var row = Assert.Single(await store.LoadSinceAsync(Now.AddHours(-1), ct));
+        Assert.Equal((7076.0, Now.AddMinutes(30)), (row.FrequencyKhz, row.SpotTime));
+    }
+
+    [Fact]
+    public async Task Saving_the_same_spot_again_changes_nothing_and_gives_no_new_seq()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var first = await store.SaveAsync([Pota("1")], ct);
+
+        // The POTA feed keeps sending the latest spot of an activation; the dedup forgets it after 20 min.
+        var again = await store.SaveAsync([Pota("1")], ct);
+
+        Assert.Empty(again);
+        Assert.Equal(first[0].Seq, Assert.Single(await store.LoadSinceAsync(Now.AddHours(-1), ct)).Seq);
+    }
+
+    [Fact]
+    public async Task A_DX_spot_merged_with_another_feed_at_the_same_time_is_saved_again()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var first = await store.SaveAsync([Dx("JA1ABC")], ct);
+
+        var merged = await store.SaveAsync([first[0] with { Feeds = ["DXFun", "HamQTH"] }], ct);
+
+        Assert.True(Assert.Single(merged).Seq > first[0].Seq);
+    }
+
+    [Fact]
+    public async Task At_startup_the_xOTA_rows_keyed_by_the_program_id_are_removed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using (var connection = await dataSource.OpenConnectionAsync(ct))
+        {
+            // Rows saved before the activation key (27/10/2026): the POTA spot id as key.
+            await connection.ExecuteAsync("""
+                insert into dx_spots (program, spot_key, callsign, frequency_khz, spot_time, feeds) values
+                  ('pota', '59545154', 'K8RLE', 7074, now(), '{POTA}'),
+                  ('dx', 'JA1ABC_14025.0_202610271200', 'JA1ABC', 14025, now(), '{DXFun}');
+                """);
+        }
+        await store.SaveAsync([Pota("1")], ct);
+
+        await store.EnsureSchemaAsync(ct);
+
+        var keys = (await store.LoadSinceAsync(Now.AddDays(-1), ct)).Select(s => s.SpotKey).Order().ToArray();
+        Assert.Equal(["JA1ABC_14025.0_202610271200", "K8RLE_US-6701_40m"], keys);
+    }
+
     private static Spot Pota(string id) => SpotEnrichment.Enrich(new Spot
     {
         Program = SpotProgram.Pota,
@@ -210,6 +270,7 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
         SpotTime = Now,
         Feeds = ["POTA"],
         Mode = "FT8",
+        Reference = "US-6701",
     });
 
     private static void AssertSame(Spot expected, Spot actual)

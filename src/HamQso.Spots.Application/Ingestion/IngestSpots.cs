@@ -27,7 +27,7 @@ public sealed partial class IngestSpots(
     /// <summary>Reloads the dedup from the archive, so a restart neither republishes nor re-alerts.</summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var since = time.GetUtcNow() - (2 * DuplicateRule.Window);
+        var since = time.GetUtcNow() - DuplicateRule.LongestMemory;
         IReadOnlyList<Spot> archived;
         try
         {

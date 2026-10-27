@@ -29,7 +29,8 @@ done
 
 key="${SUPABASE_PUBLISHABLE_KEY:-}"
 if [[ -z "$key" ]]; then
-  key=$(supabase projects api-keys --project-ref "$PROJECT_REF" -o json 2>/dev/null \
+  # From a temporary folder: the CLI leaves a supabase/.temp cache where it runs.
+  key=$(cd "$(mktemp -d)" && supabase projects api-keys --project-ref "$PROJECT_REF" -o json 2>/dev/null \
     | python3 -c "import json,sys; print(next(k['api_key'] for k in json.load(sys.stdin) if k.get('type')=='publishable'))") \
     || { echo "No publishable key: set SUPABASE_PUBLISHABLE_KEY or log in with the Supabase CLI." >&2; exit 1; }
 fi

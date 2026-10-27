@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="MQTTnet" Version="5.2.0.1603" />
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Supabase.Functions" Version="8.5.1" />
     <PackageVersion Include="Dapper" Version="2.1.89" />

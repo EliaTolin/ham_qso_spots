@@ -19,10 +19,10 @@ public class AlertsHealthTests
         Feeds = ["DXFun"],
     });
 
-    private static (SupabaseAlertNotifier Notifier, FakeHealth Health, HttpClient Http) Notifier(HttpStatusCode answer)
+    private static (SupabaseAlertNotifier Notifier, RecordingHealth Health, HttpClient Http) Notifier(HttpStatusCode answer)
     {
         var http = new HttpClient(new FixedHandler(answer));
-        var health = new FakeHealth();
+        var health = new RecordingHealth();
         var options = Options.Create(new SupabaseOptions { Url = new Uri("https://example.supabase.co"), SecretKey = "sb_secret_test" });
         return (new SupabaseAlertNotifier(options, http, health), health, http);
     }
@@ -35,7 +35,8 @@ public class AlertsHealthTests
 
         await Assert.ThrowsAnyAsync<Exception>(() => notifier.NotifyAsync([Dx()], TestContext.Current.CancellationToken));
 
-        Assert.Equal([("alerts", false)], health.Calls);
+        Assert.Equal(["alerts"], health.Failures);
+        Assert.False(health.LastOf("alerts"));
     }
 
     [Fact]
@@ -46,21 +47,13 @@ public class AlertsHealthTests
 
         await notifier.NotifyAsync([Dx()], TestContext.Current.CancellationToken);
 
-        Assert.Equal([("alerts", true)], health.Calls);
+        Assert.True(health.LastOf("alerts"));
+        Assert.Empty(health.Failures);
     }
 
     private sealed class FixedHandler(HttpStatusCode status) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("{\"success\":true}") });
-    }
-
-    private sealed class FakeHealth : ISourceHealth
-    {
-        public List<(string, bool)> Calls { get; } = [];
-
-        public void Succeeded(string source) => Calls.Add((source, true));
-
-        public void Failed(string source, string reason) => Calls.Add((source, false));
     }
 }

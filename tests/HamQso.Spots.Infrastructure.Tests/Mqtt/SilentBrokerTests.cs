@@ -52,7 +52,7 @@ public sealed class SilentBrokerTests : IDisposable
     [Fact]
     public async Task With_the_broker_down_the_first_publish_fails_within_5_s_and_the_next_ones_at_once()
     {
-        await using var publisher = new MqttSpotPublisher(Microsoft.Extensions.Options.Options.Create(Options), new FakeHealth(), TimeProvider.System);
+        await using var publisher = new MqttSpotPublisher(Microsoft.Extensions.Options.Options.Create(Options), new RecordingHealth(), TimeProvider.System);
         using var guard = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         guard.CancelAfter(TimeSpan.FromSeconds(15));
 
@@ -72,7 +72,7 @@ public sealed class SilentBrokerTests : IDisposable
     [Fact]
     public async Task With_the_broker_down_health_shows_broker_failing_and_recovers_after_10_s()
     {
-        var health = new FakeHealth();
+        var health = new RecordingHealth();
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var publisher = new MqttSpotPublisher(Microsoft.Extensions.Options.Options.Create(Options), health, time);
 
@@ -83,16 +83,5 @@ public sealed class SilentBrokerTests : IDisposable
         time.Advance(MqttSpotPublisher.RetryAfter);
         await Assert.ThrowsAnyAsync<Exception>(() => publisher.PublishAsync("spots/dx/20m/cw", [Spot()], TestContext.Current.CancellationToken));
         Assert.Equal(2, health.Failures.Count);
-    }
-
-    private sealed class FakeHealth : ISourceHealth
-    {
-        public List<string> Failures { get; } = [];
-
-        public void Succeeded(string source)
-        {
-        }
-
-        public void Failed(string source, string reason) => Failures.Add(source);
     }
 }

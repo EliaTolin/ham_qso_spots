@@ -44,6 +44,21 @@ public sealed class WorkerTests : IDisposable
         Assert.True(condition(), "condition not reached in 5 s");
     }
 
+    /// <summary>
+    /// Moves the fake clock by <paramref name="step"/> until the condition holds:
+    /// the worker may not be waiting yet when the first step comes.
+    /// </summary>
+    private async Task AdvanceUntil(TimeSpan step, Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            time.Advance(step);
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+        Assert.True(condition(), "condition not reached in 5 s");
+    }
+
     [Fact]
     public async Task Every_source_runs_and_a_broken_one_shows_in_health_while_the_others_go_on()
     {
@@ -80,9 +95,7 @@ public sealed class WorkerTests : IDisposable
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
         await WaitFor(() => source.Reads == 1);
-        await Task.Delay(50, TestContext.Current.CancellationToken);
-        time.Advance(TimeSpan.FromSeconds(10));
-        await WaitFor(() => source.Reads == 2);
+        await AdvanceUntil(TimeSpan.FromSeconds(10), () => source.Reads == 2);
         await worker.StopAsync(TestContext.Current.CancellationToken);
     }
 
@@ -94,12 +107,11 @@ public sealed class WorkerTests : IDisposable
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
         await WaitFor(() => store.DeleteCalls.Count == 1);
-        await Task.Delay(50, TestContext.Current.CancellationToken);
-        time.Advance(TimeSpan.FromHours(1));
-        await WaitFor(() => store.DeleteCalls.Count == 2);
+        await AdvanceUntil(TimeSpan.FromHours(1), () => store.DeleteCalls.Count >= 2);
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal([Now - RetentionWorker.Window, Now.AddHours(1) - RetentionWorker.Window], store.DeleteCalls);
+        Assert.Equal(Now - RetentionWorker.Window, store.DeleteCalls[0]);
+        Assert.Equal(TimeSpan.FromHours(1), store.DeleteCalls[1] - store.DeleteCalls[0]);
     }
 
     private sealed class OneBatchSource(string name, Spot[] spots) : ISpotSource

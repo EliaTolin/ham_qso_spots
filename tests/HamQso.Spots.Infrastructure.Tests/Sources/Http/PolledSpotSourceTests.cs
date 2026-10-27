@@ -16,7 +16,7 @@ public class PolledSpotSourceTests
         var source = new PolledSpotSource(new SotaFeed(), http, TimeSpan.FromMinutes(1), time);
         using var cts = new CancellationTokenSource();
 
-        var reading = Consume(source, new FakeHealth(), cts.Token);
+        var reading = Consume(source, new RecordingHealth(), cts.Token);
         for (var second = 0; second < 10 * 60; second++)
         {
             await Task.Yield();
@@ -30,13 +30,30 @@ public class PolledSpotSourceTests
     }
 
     [Fact]
+    public async Task A_feed_that_answers_shows_ok_in_health()
+    {
+        var time = new FakeTimeProvider();
+        using var http = new HttpClient(new CountingHandler("[]"));
+        var source = new PolledSpotSource(new SotaFeed(), http, TimeSpan.FromMinutes(1), time);
+        var health = new RecordingHealth();
+        using var cts = new CancellationTokenSource();
+
+        var reading = Consume(source, health, cts.Token);
+        for (var i = 0; i < 100 && health.LastOf("SOTA") is null; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+        await cts.CancelAsync();
+        await reading;
+
+        Assert.True(health.LastOf("SOTA"));
+    }
+
+    [Fact]
     public async Task A_failing_feed_is_reported_and_tried_again()
     {
         var time = new FakeTimeProvider();
         var handler = new CountingHandler(null);
         using var http = new HttpClient(handler);
         var source = new PolledSpotSource(new PotaFeed(), http, TimeSpan.FromSeconds(30), time);
-        var health = new FakeHealth();
+        var health = new RecordingHealth();
         using var cts = new CancellationTokenSource();
 
         var reading = Consume(source, health, cts.Token);
@@ -78,16 +95,5 @@ public class PolledSpotSourceTests
                 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
         }
-    }
-
-    private sealed class FakeHealth : ISourceHealth
-    {
-        public List<string> Failures { get; } = [];
-
-        public void Succeeded(string source)
-        {
-        }
-
-        public void Failed(string source, string reason) => Failures.Add(source);
     }
 }

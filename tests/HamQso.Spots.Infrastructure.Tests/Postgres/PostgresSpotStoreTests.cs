@@ -1,5 +1,4 @@
 using Dapper;
-using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Domain.Radio;
 using HamQso.Spots.Domain.Spots;
@@ -16,13 +15,14 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:17-alpine").Build();
     private NpgsqlDataSource dataSource = null!;
+    private readonly RecordingHealth health = new();
     private PostgresSpotStore store = null!;
 
     public async ValueTask InitializeAsync()
     {
         await postgres.StartAsync(TestContext.Current.CancellationToken);
         dataSource = NpgsqlDataSource.Create(postgres.GetConnectionString());
-        store = new PostgresSpotStore(dataSource, NullSourceHealth.Instance);
+        store = new PostgresSpotStore(dataSource, health);
         await store.EnsureSchemaAsync(TestContext.Current.CancellationToken);
     }
 
@@ -179,6 +179,26 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
         Assert.Equal(2, page.Spots.Count);
         Assert.All(page.Spots, s => Assert.NotNull(s.Seq));
         Assert.Equal(saved[0].Seq, page.Seq);
+    }
+
+    [Fact]
+    public async Task A_save_shows_archive_ok_in_health()
+    {
+        await store.SaveAsync([Dx("JA1ABC")], TestContext.Current.CancellationToken);
+
+        Assert.True(health.LastOf("archive"));
+    }
+
+    [Fact]
+    public async Task With_Postgres_unreachable_a_save_fails_and_health_shows_archive_failing()
+    {
+        var down = new RecordingHealth();
+        await using var nowhere = NpgsqlDataSource.Create("Host=127.0.0.1;Port=1;Timeout=2;Database=spots;Username=spots;Password=x");
+        var unreachable = new PostgresSpotStore(nowhere, down);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => unreachable.SaveAsync([Dx("JA1ABC")], TestContext.Current.CancellationToken));
+
+        Assert.Equal(["archive"], down.Failures);
     }
 
     private static Spot Pota(string id) => SpotEnrichment.Enrich(new Spot

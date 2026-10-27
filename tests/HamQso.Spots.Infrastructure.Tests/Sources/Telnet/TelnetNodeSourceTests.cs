@@ -51,8 +51,12 @@ public sealed class TelnetNodeSourceTests : IDisposable
             return (login, backlog);
         });
 
-        var batch = await FirstBatch(Source(), new FakeHealth());
+        var health = new RecordingHealth();
+        var batch = await FirstBatch(Source(), health);
         var (login, backlog) = await node;
+
+        // Ok when the spots arrive (the fake node then closes: the last report is that).
+        Assert.Contains(health.Calls, c => c.Source == "DXFun" && c.Ok);
 
         Assert.Equal("N0CALL-87", login);
         Assert.Equal("sh/dx 50", backlog);
@@ -71,7 +75,7 @@ public sealed class TelnetNodeSourceTests : IDisposable
         });
 
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-        var reading = Drain(Source(), new FakeHealth(), stop.Token);
+        var reading = Drain(Source(), new RecordingHealth(), stop.Token);
         var login = await node;
         await stop.CancelAsync();
         await reading;
@@ -93,7 +97,7 @@ public sealed class TelnetNodeSourceTests : IDisposable
                 // Then silence: no spot, no close.
             }
         });
-        var health = new FakeHealth();
+        var health = new RecordingHealth();
 
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
         var reading = Drain(Source(idle: TimeSpan.FromMilliseconds(500)), health, stop.Token);
@@ -103,7 +107,7 @@ public sealed class TelnetNodeSourceTests : IDisposable
 
         Assert.Equal(2, clients.Count);
         clients.ForEach(c => c.Dispose());
-        Assert.Contains(health.Failures, f => f.Contains("no data", StringComparison.Ordinal));
+        Assert.Contains(health.Reasons, f => f.Contains("no data", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -122,7 +126,7 @@ public sealed class TelnetNodeSourceTests : IDisposable
         });
 
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-        var reading = Drain(Source(), new FakeHealth(), stop.Token);
+        var reading = Drain(Source(), new RecordingHealth(), stop.Token);
         var reply = await node;
         await stop.CancelAsync();
         await reading;
@@ -130,13 +134,13 @@ public sealed class TelnetNodeSourceTests : IDisposable
         Assert.Equal(new byte[] { 255, 252, 1 }, reply);
     }
 
-    private async Task<SpotBatch> FirstBatch(TelnetNodeSource source, FakeHealth health)
+    private async Task<SpotBatch> FirstBatch(TelnetNodeSource source, RecordingHealth health)
     {
         await foreach (var batch in source.ReadAsync(health, cts.Token)) return batch;
         throw new InvalidOperationException("no batch");
     }
 
-    private static async Task Drain(TelnetNodeSource source, FakeHealth health, CancellationToken token)
+    private static async Task Drain(TelnetNodeSource source, RecordingHealth health, CancellationToken token)
     {
         try
         {
@@ -154,26 +158,4 @@ public sealed class TelnetNodeSourceTests : IDisposable
     private Task RunNode(Func<Task> node) => Task.Run(node, cts.Token);
 
     private Task Write(NetworkStream stream, string text) => stream.WriteAsync(Encoding.Latin1.GetBytes(text), cts.Token).AsTask();
-
-    private sealed class FakeHealth : ISourceHealth
-    {
-        private readonly List<string> failures = [];
-
-        public IReadOnlyList<string> Failures
-        {
-            get
-            {
-                lock (failures) return [.. failures];
-            }
-        }
-
-        public void Succeeded(string source)
-        {
-        }
-
-        public void Failed(string source, string reason)
-        {
-            lock (failures) failures.Add(reason);
-        }
-    }
 }

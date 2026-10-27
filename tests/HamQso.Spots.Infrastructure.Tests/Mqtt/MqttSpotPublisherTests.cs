@@ -1,7 +1,6 @@
 using System.Text;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
-using HamQso.Spots.Application.Health;
 using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure.Mqtt;
 using Microsoft.Extensions.Options;
@@ -20,6 +19,7 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
         .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(1883))
         .Build();
 
+    private readonly RecordingHealth health = new();
     private MqttSpotPublisher publisher = null!;
 
     public async ValueTask InitializeAsync()
@@ -31,7 +31,7 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
             Port = mosquitto.GetMappedPublicPort(1883),
             Username = "ingestor",
             Password = "test",
-        }), NullSourceHealth.Instance, TimeProvider.System);
+        }), health, TimeProvider.System);
     }
 
     public async ValueTask DisposeAsync()
@@ -64,6 +64,15 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
         var page = SpotJson.Deserialize(json);
         Assert.Equal((42L, false), (page.Seq, page.Full));
         Assert.Equal(["VK2XYZ", "JA1ABC"], page.Spots.Select(s => s.Callsign));
+    }
+
+    [Fact]
+    public async Task After_publishing_on_the_broker_health_shows_broker_ok()
+    {
+        await publisher.PublishAsync("spots/dx/20m/cw", [Dx("JA1ABC", 1)], TestContext.Current.CancellationToken);
+
+        Assert.True(health.LastOf("broker"));
+        Assert.Empty(health.Failures);
     }
 
     [Fact]

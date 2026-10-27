@@ -1,2 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Copy of ham_qso_supabase/supabase/functions/_shared/data/dxcc_prefixes.json: keep them identical. -->
+    <EmbeddedResource Include="Data/dxcc_prefixes.json" LogicalName="dxcc_prefixes.json" />
+  </ItemGroup>
 </Project>

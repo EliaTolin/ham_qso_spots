@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.v3" />
-    <PackageReference Include="xunit.runner.visualstudio" />
-    <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HamQso.Spots.Domain/HamQso.Spots.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- band_plan_cases.json is a copy of ham_qso_supabase/supabase/functions/_shared/band_plan_cases.json: keep them identical. -->
+    <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

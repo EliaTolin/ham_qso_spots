@@ -47,6 +47,9 @@ public sealed record Spot
 
     public string? Comment { get; init; }
 
+    /// <summary>Location of the reference as the program gives it (POTA "US-MI"): the US state of an alert.</summary>
+    public string? Location { get; init; }
+
     /// <summary>Locator of the spotter, sent by some telnet nodes.</summary>
     public string? SpotterLocator { get; init; }
 }

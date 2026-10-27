@@ -17,7 +17,7 @@ public class FeedParserTests
 
         Assert.Equal(38, spots.Count);
         var first = spots[0];
-        Assert.Equal(("K8RLE", 7074.0, "FT8", "US-6701"), (first.Callsign, first.FrequencyKhz, first.Mode, first.Reference));
+        Assert.Equal(("K8RLE", 7074.0, "FT8", "US-6701", "US-MI"), (first.Callsign, first.FrequencyKhz, first.Mode, first.Reference, first.Location));
         Assert.Equal(new DateTimeOffset(2026, 10, 27, 11, 43, 53, TimeSpan.Zero), first.SpotTime);
         Assert.All(spots, s => Assert.Equal(SpotProgram.Pota, s.Program));
     }

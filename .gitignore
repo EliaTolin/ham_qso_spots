@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Supabase CLI cache (created when the CLI runs from here)
+supabase/.temp/

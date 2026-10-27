@@ -28,6 +28,14 @@ dotnet test                 # serve Docker per Postgres e Mosquitto (Testcontain
 dotnet user-secrets set "Supabase:SecretKey" "sb_secret_..." --project src/HamQso.Spots.Host
 ```
 
+## Collegarsi al broker a mano (MQTT Explorer)
+
+```
+scripts/mqtt-token.sh --copy
+```
+
+Stampa (e copia) un token di accesso Supabase, valido circa un'ora, di un utente anonimo di sviluppo sempre uguale (sessione in `~/.config/hamqso/mqtt-dev-session.json`). In MQTT Explorer: `ws://` con Encryption (tls), host `spot.hamqso.app`, porta 443, basepath `mqtt`, username l'id che lo script stampa, password il token; in ADVANCED togliere `#` e `$SYS/#` e aggiungere `spots/#`.
+
 ## Test end-to-end (produzione)
 
 `tests/HamQso.Spots.EndToEnd.Tests` prova il sistema pubblicato come lo vede un'app, senza l'app: `/health`, broker su `wss://spot.hamqso.app/mqtt` con un token Supabase vero (utente anonimo di prova), pubblicazione rifiutata, token falsi rifiutati, `alert_spots` che crea l'evento d'avviso solo per l'avviso di prova. Crea un utente anonimo Pro senza dispositivi e a fine test cancella tutto (utente, avvisi, eventi, `processed_spots`, statistiche). Non è nella soluzione: va lanciato a mano.

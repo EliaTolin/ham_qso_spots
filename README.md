@@ -36,6 +36,14 @@ scripts/mqtt-token.sh --copy
 
 Stampa (e copia) un token di accesso Supabase, valido circa un'ora, di un utente anonimo di sviluppo sempre uguale (sessione in `~/.config/hamqso/mqtt-dev-session.json`). In MQTT Explorer: `ws://` con Encryption (tls), host `spot.hamqso.app`, porta 443, basepath `mqtt`, username l'id che lo script stampa, password il token; in ADVANCED togliere `#` e `$SYS/#` e aggiungere `spots/#`.
 
+## Prova di carico del broker
+
+```
+TOKEN=$(scripts/mqtt-token.sh) dotnet run -c Release --project tools/HamQso.Spots.LoadTest -- --steps 100,250,500,1000 --hold 60
+```
+
+Simula N app collegate via WebSocket (iscritte a `spots/dx/#` e `spots/pota`), a gradini; misura connessioni, tempo di connessione e ritardo di consegna dello stesso messaggio a tutti. Si ferma da solo se più dell'1% delle connessioni fallisce, se le app collegate calano o se `/health` non è `Healthy`, e chiude tutte le connessioni.
+
 ## Test end-to-end (produzione)
 
 `tests/HamQso.Spots.EndToEnd.Tests` prova il sistema pubblicato come lo vede un'app, senza l'app: `/health`, broker su `wss://spot.hamqso.app/mqtt` con un token Supabase vero (utente anonimo di prova), pubblicazione rifiutata, token falsi rifiutati, `alert_spots` che crea l'evento d'avviso solo per l'avviso di prova. Crea un utente anonimo Pro senza dispositivi e a fine test cancella tutto (utente, avvisi, eventi, `processed_spots`, statistiche). Non è nella soluzione: va lanciato a mano.

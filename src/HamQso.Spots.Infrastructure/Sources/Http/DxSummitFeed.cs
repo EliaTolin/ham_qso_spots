@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HamQso.Spots.Domain.Spots;
+using HamQso.Spots.Infrastructure.Sources;
 
 namespace HamQso.Spots.Infrastructure.Sources.Http;
 

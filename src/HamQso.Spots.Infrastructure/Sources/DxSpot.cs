@@ -1,6 +1,6 @@
 using HamQso.Spots.Domain.Spots;
 
-namespace HamQso.Spots.Infrastructure.Sources.Http;
+namespace HamQso.Spots.Infrastructure.Sources;
 
 /// <summary>A DX spot built from cluster fields; the key is call, kHz and minute.</summary>
 internal static class DxSpot

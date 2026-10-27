@@ -6,7 +6,7 @@ namespace HamQso.Spots.EndToEnd.Tests;
 public class HealthTests
 {
     private static readonly string[] Expected =
-        ["DXFun", "IZ8MBW-6", "IK5PWJ-6", "DA0BCC-7", "HamQTH", "DXSummit", "POTA", "SOTA", "WWFF", "broker"];
+        ["DXFun", "IZ8MBW-6", "IK5PWJ-6", "DA0BCC-7", "HamQTH", "DXSummit", "POTA", "SOTA", "WWFF", "broker", "alerts"];
 
     [Fact]
     public async Task Health_shows_every_source_and_the_broker_ok_without_error_details()

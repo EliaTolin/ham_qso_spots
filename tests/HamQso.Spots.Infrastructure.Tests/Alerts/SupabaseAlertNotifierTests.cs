@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using HamQso.Spots.Application.Health;
 using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure.Alerts;
 using Microsoft.Extensions.Options;
@@ -28,7 +29,7 @@ public class SupabaseAlertNotifierTests
         var handler = new RecordingHandler();
         using var http = new HttpClient(handler);
         var notifier = new SupabaseAlertNotifier(
-            Options.Create(new SupabaseOptions { Url = new Uri("https://example.supabase.co"), SecretKey = "sb_secret_test" }), http);
+            Options.Create(new SupabaseOptions { Url = new Uri("https://example.supabase.co"), SecretKey = "sb_secret_test" }), http, NullSourceHealth.Instance);
 
         await notifier.NotifyAsync([Dx("CW 12 dB 25 WPM CQ")], TestContext.Current.CancellationToken);
 

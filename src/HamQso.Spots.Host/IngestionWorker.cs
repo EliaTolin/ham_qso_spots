@@ -1,6 +1,7 @@
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
 using HamQso.Spots.Application.Ports;
+using HamQso.Spots.Infrastructure.Alerts;
 using HamQso.Spots.Infrastructure.Mqtt;
 using HamQso.Spots.Infrastructure.Postgres;
 
@@ -36,6 +37,7 @@ public sealed partial class IngestionWorker(
         var list = sources.ToArray();
         foreach (var source in list) health.Register(source.Name);
         health.Register(MqttSpotPublisher.HealthName);
+        health.Register(SupabaseAlertNotifier.HealthName);
         await Task.WhenAll(list.Select(s => RunAsync(s, stoppingToken)));
     }
 

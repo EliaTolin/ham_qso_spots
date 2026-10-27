@@ -8,10 +8,14 @@ namespace HamQso.Spots.Infrastructure.Alerts;
 /// <summary>
 /// Hands new spots to the alerts edge function with the official C# client.
 /// The function checks the secret key; matching, anti-spam, US states, pushes
-/// and statistics stay in Supabase, in one place.
+/// and statistics stay in Supabase, in one place. Every call tells /health
+/// ("alerts"): a refused key or the function down shows there.
 /// </summary>
-public sealed class SupabaseAlertNotifier(IOptions<SupabaseOptions> options, HttpClient http) : IAlertNotifier
+public sealed class SupabaseAlertNotifier(IOptions<SupabaseOptions> options, HttpClient http, ISourceHealth health) : IAlertNotifier
 {
+    /// <summary>Name of the alerts call in /health.</summary>
+    public const string HealthName = "alerts";
+
     private readonly Client functions = new(
         new Uri(options.Value.Url, "functions/v1").ToString(),
         null,
@@ -22,10 +26,19 @@ public sealed class SupabaseAlertNotifier(IOptions<SupabaseOptions> options, Htt
         ArgumentNullException.ThrowIfNull(spots);
         if (spots.Count == 0) return;
         var key = options.Value.SecretKey;
-        await functions.Invoke(options.Value.AlertsFunction, key, new Client.InvokeFunctionOptions
+        try
         {
-            Headers = { ["apikey"] = key },
-            Body = { ["spots"] = spots.Select(AlertSpotPayload.From).ToArray() },
-        }, cancellationToken).ConfigureAwait(false);
+            await functions.Invoke(options.Value.AlertsFunction, key, new Client.InvokeFunctionOptions
+            {
+                Headers = { ["apikey"] = key },
+                Body = { ["spots"] = spots.Select(AlertSpotPayload.From).ToArray() },
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (!cancellationToken.IsCancellationRequested)
+        {
+            health.Failed(HealthName, e.Message);
+            throw;
+        }
+        health.Succeeded(HealthName);
     }
 }

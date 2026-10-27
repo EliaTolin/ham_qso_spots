@@ -13,6 +13,8 @@ RUN dotnet publish src/HamQso.Spots.Host/HamQso.Spots.Host.csproj -c Release -o 
 FROM mcr.microsoft.com/dotnet/aspnet:11.0.0-rc.2-alpine3.24
 WORKDIR /app
 COPY --from=build /app .
+# The ports come from the Server section (8080 public, 8081 internal), not from the image default.
+ENV ASPNETCORE_HTTP_PORTS=
 USER $APP_UID
 # 8080: /health (public). 8081: /mqtt/* for Mosquitto (Docker network only).
 EXPOSE 8080 8081

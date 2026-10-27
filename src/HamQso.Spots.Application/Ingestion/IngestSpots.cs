@@ -18,7 +18,7 @@ public sealed partial class IngestSpots(
     ILogger<IngestSpots> logger) : IDisposable
 {
     /// <summary>Spots in the retained DX lists, all topics together.</summary>
-    public const int RecentDxCapacity = 200;
+    public const int RecentDxCapacity = 50;
 
     /// <summary>Older spots (a telnet backlog after a reconnect) never trigger an alert.</summary>
     public static readonly TimeSpan AlertFreshness = TimeSpan.FromMinutes(15);

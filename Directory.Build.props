@@ -16,8 +16,8 @@
   <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
     <IsPackable>false</IsPackable>
     <OutputType>Exe</OutputType>
-    <!-- Test names are sentences ("After_10_minutes_it_is_a_new_spot"). -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- Test names are sentences ("After_10_minutes_it_is_a_new_spot"); fakes are used through their port on purpose. -->
+    <NoWarn>$(NoWarn);CA1707;CA1859</NoWarn>
   </PropertyGroup>
 
   <ItemGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">

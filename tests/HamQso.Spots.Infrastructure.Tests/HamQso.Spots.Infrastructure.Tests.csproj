@@ -2,8 +2,14 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HamQso.Spots.Infrastructure/HamQso.Spots.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Real answers recorded on 27/10/2026, plus a few malformed rows added by hand. -->
+    <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

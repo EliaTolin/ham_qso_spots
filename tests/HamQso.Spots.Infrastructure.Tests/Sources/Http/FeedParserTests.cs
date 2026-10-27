@@ -1,0 +1,94 @@
+using HamQso.Spots.Domain.Spots;
+using HamQso.Spots.Infrastructure.Sources.Http;
+
+namespace HamQso.Spots.Infrastructure.Tests.Sources.Http;
+
+public class FeedParserTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
+
+    private static IReadOnlyList<Spot> Parse(IPolledFeed feed, string fixture) =>
+        feed.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture)), Now);
+
+    [Fact]
+    public void POTA_gives_every_activation_and_skips_the_malformed_row()
+    {
+        var spots = Parse(new PotaFeed(), "pota.json");
+
+        Assert.Equal(38, spots.Count);
+        var first = spots[0];
+        Assert.Equal(("K8RLE", 7074.0, "FT8", "US-6701"), (first.Callsign, first.FrequencyKhz, first.Mode, first.Reference));
+        Assert.Equal(new DateTimeOffset(2026, 10, 27, 11, 43, 53, TimeSpan.Zero), first.SpotTime);
+        Assert.All(spots, s => Assert.Equal(SpotProgram.Pota, s.Program));
+    }
+
+    [Fact]
+    public void SOTA_converts_MHz_and_skips_QRT_test_and_malformed_spots()
+    {
+        var spots = Parse(new SotaFeed(), "sota.json");
+
+        Assert.Equal(45, spots.Count);
+        Assert.DoesNotContain(spots, s => s.Callsign == "G0TST/P" || s.Callsign == "G0ABC/P");
+        var first = spots[0];
+        Assert.Equal(("HB9CBR/P", 24904.0, "HB/SO-023"), (first.Callsign, first.FrequencyKhz, first.Reference));
+    }
+
+    [Fact]
+    public void WWFF_reads_Unix_time_and_skips_QRT_spots()
+    {
+        var spots = Parse(new WwffFeed(), "wwff.json");
+
+        Assert.Equal(43, spots.Count);
+        Assert.DoesNotContain(spots, s => s.Callsign == "ON4QRT");
+        var first = spots[0];
+        Assert.Equal(("HB9CBR/P", 24904.0, "HBFF-0040"), (first.Callsign, first.FrequencyKhz, first.Reference));
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1793101495), first.SpotTime);
+    }
+
+    [Fact]
+    public void HamQTH_keeps_its_DXCC_and_continent_but_not_its_mode_guess()
+    {
+        var spots = Parse(new HamQthFeed(), "hamqth_v2.json");
+
+        Assert.Equal(50, spots.Count);
+        var first = spots[0];
+        Assert.Equal(("DL/HB9BIN/P", 7023.9, "DL1HBT", "DM/BW-003"), (first.Callsign, first.FrequencyKhz, first.Spotters[0], first.Comment));
+        Assert.Equal((230, "EU"), (first.Dxcc, first.Continent));
+        Assert.Equal("", first.Mode);
+        Assert.Equal(["HamQTH"], first.Feeds);
+    }
+
+    [Fact]
+    public void DX_Summit_reads_UTC_times_without_zone()
+    {
+        var spots = Parse(new DxSummitFeed(), "dxsummit.json");
+
+        Assert.Equal(50, spots.Count);
+        var first = spots[0];
+        Assert.Equal(("DL/HB9BIN/P", 7023.9, "DL1HBT"), (first.Callsign, first.FrequencyKhz, first.Spotters[0]));
+        Assert.Equal(new DateTimeOffset(2026, 10, 27, 11, 45, 35, TimeSpan.Zero), first.SpotTime);
+    }
+
+    [Fact]
+    public void The_same_spot_on_HamQTH_and_DX_Summit_is_a_duplicate()
+    {
+        var hamQth = SpotEnrichment.Enrich(Parse(new HamQthFeed(), "hamqth_v2.json")[0]);
+        var dxSummit = SpotEnrichment.Enrich(Parse(new DxSummitFeed(), "dxsummit.json")[0]);
+
+        Assert.True(DuplicateRule.IsDuplicate(hamQth, dxSummit));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("{}")]
+    [InlineData("[{\"bad\": true}]")]
+    public void A_body_without_spots_gives_no_spots(string body)
+    {
+        IPolledFeed[] feeds = [new PotaFeed(), new SotaFeed(), new WwffFeed(), new DxSummitFeed(), new HamQthFeed()];
+        foreach (var feed in feeds)
+        {
+            if (body.Length == 0) Assert.ThrowsAny<System.Text.Json.JsonException>(() => feed.Parse(body, Now));
+            else Assert.Empty(feed.Parse(body, Now));
+        }
+    }
+}

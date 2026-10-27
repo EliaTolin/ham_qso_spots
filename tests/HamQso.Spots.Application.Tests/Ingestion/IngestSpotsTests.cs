@@ -72,7 +72,7 @@ public sealed class IngestSpotsTests : IDisposable
     }
 
     [Fact]
-    public async Task The_retained_DX_lists_hold_the_last_200_spots_in_all()
+    public async Task The_retained_DX_lists_hold_the_last_50_spots_in_all()
     {
         for (var i = 0; i < IngestSpots.RecentDxCapacity + 10; i++)
         {

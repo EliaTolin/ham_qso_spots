@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HamQso.Spots.Domain/HamQso.Spots.Domain.csproj" />
+    <Project Path="src/HamQso.Spots.Application/HamQso.Spots.Application.csproj" />
+    <Project Path="src/HamQso.Spots.Infrastructure/HamQso.Spots.Infrastructure.csproj" />
+    <Project Path="src/HamQso.Spots.Host/HamQso.Spots.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HamQso.Spots.Domain.Tests/HamQso.Spots.Domain.Tests.csproj" />
+    <Project Path="tests/HamQso.Spots.Application.Tests/HamQso.Spots.Application.Tests.csproj" />
+    <Project Path="tests/HamQso.Spots.Infrastructure.Tests/HamQso.Spots.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

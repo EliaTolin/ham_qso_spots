@@ -10,8 +10,6 @@ public sealed class PotaFeed : IPolledFeed
 
     public Uri Url { get; } = new("https://api.pota.app/spot/activator");
 
-    public SpotProgram? SnapshotOf => SpotProgram.Pota;
-
     public IReadOnlyList<Spot> Parse(string body, DateTimeOffset now)
     {
         using var doc = JsonDocument.Parse(body);

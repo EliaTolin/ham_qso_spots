@@ -1,3 +1,6 @@
+using System.Net;
+using System.Threading.Channels;
+using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure;
 using MQTTnet;
 using MQTTnet.Formatter;
@@ -22,28 +25,47 @@ public sealed class BrokerTests : IAsyncLifetime
             .Build();
 
     [Fact]
-    public async Task A_HamQSO_user_gets_the_saved_spot_lists_at_once()
+    public async Task An_app_gets_the_starting_list_by_REST_then_the_news_by_MQTT_and_since_seq_finds_them()
     {
         var ct = TestContext.Current.CancellationToken;
         using var client = new MqttClientFactory().CreateMqttClient();
-        var lists = new Dictionary<string, string>();
-        client.ApplicationMessageReceivedAsync += e =>
-        {
-            lock (lists) lists[e.ApplicationMessage.Topic] = e.ApplicationMessage.ConvertPayloadToString();
-            return Task.CompletedTask;
-        };
+        var news = Channel.CreateUnbounded<(string Topic, string Json)>();
+        client.ApplicationMessageReceivedAsync += e => news.Writer.WriteAsync((e.ApplicationMessage.Topic, e.ApplicationMessage.ConvertPayloadToString())).AsTask();
 
-        var connected = await client.ConnectAsync(Options(user.Id, user.AccessToken), ct);
-        Assert.Equal(MqttClientConnectResultCode.Success, connected.ResultCode);
+        // 1. Subscribe first, as the app does, then 2. ask the starting list.
+        Assert.Equal(MqttClientConnectResultCode.Success, (await client.ConnectAsync(Options(user.Id, user.AccessToken), ct)).ResultCode);
         await client.SubscribeAsync(new MqttClientSubscribeOptionsBuilder().WithTopicFilter("spots/dx/#").WithTopicFilter("spots/pota").Build(), ct);
-        await Task.Delay(TimeSpan.FromSeconds(3), ct);
+        var start = await Api.GetAsync(user.AccessToken, "?program=dx", ct);
+        Assert.True(start.Full);
+        Assert.InRange(start.Spots.Count, 1, 200);
+        Assert.True(start.Seq > 0);
 
-        Dictionary<string, string> got;
-        lock (lists) got = new(lists);
-        Assert.Contains("spots/pota", got.Keys);
-        var dx = got.Where(l => l.Key.StartsWith("spots/dx/", StringComparison.Ordinal)).Sum(l => SpotJson.Deserialize(l.Value).Length);
-        Assert.InRange(dx, 1, 50);
-        Assert.NotEmpty(SpotJson.Deserialize(got["spots/pota"]));
+        // 3. A piece of news (DX ~5-8 a minute, POTA every 30 s).
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        wait.CancelAfter(TimeSpan.FromSeconds(120));
+        var (topic, json) = await news.Reader.ReadAsync(wait.Token);
+        var page = SpotJson.Deserialize(json);
+        Assert.False(page.Full);
+        Assert.NotEmpty(page.Spots);
+        var spot = page.Spots[0];
+        Assert.NotNull(spot.Seq);
+        Assert.StartsWith(spot.Program == SpotProgram.Dx ? "spots/dx/" : "spots/pota", topic, StringComparison.Ordinal);
+
+        // 4. After a disconnection the app asks since_seq: the news is there.
+        var program = spot.Program == SpotProgram.Dx ? "dx" : "pota";
+        var since = await Api.GetAsync(user.AccessToken, $"?program={program}&since_seq={spot.Seq - 1}", ct);
+        Assert.Contains(since.Spots, s => s.SpotKey == spot.SpotKey);
+    }
+
+    [Fact]
+    public async Task Without_a_valid_token_the_starting_list_is_refused()
+    {
+        using var http = new HttpClient { BaseAddress = E2eSettings.Server };
+
+        using var none = await http.GetAsync(new Uri("v1/spots?program=dx", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var forged = await Api.SendAsync(http, "not.a.token", "?program=dx", TestContext.Current.CancellationToken);
+
+        Assert.Equal((HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized), (none.StatusCode, forged.StatusCode));
     }
 
     [Fact]

@@ -14,6 +14,7 @@ builder.Services.AddSpotsServer(builder.Configuration);
 var app = builder.Build();
 app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = WriteHealth });
 app.MapMqttAuth(ports.InternalPort);
+app.MapSpotsApi();
 await app.RunAsync();
 
 static Task WriteHealth(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
@@ -25,3 +26,6 @@ static Task WriteHealth(HttpContext context, Microsoft.Extensions.Diagnostics.He
         sources = report.Entries.SelectMany(e => e.Value.Data).ToDictionary(d => d.Key, d => d.Value),
     }));
 }
+
+/// <summary>Entry point; public for WebApplicationFactory in the Host tests.</summary>
+public partial class Program;

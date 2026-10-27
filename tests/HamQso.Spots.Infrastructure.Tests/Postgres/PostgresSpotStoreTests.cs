@@ -1,3 +1,6 @@
+using Dapper;
+using HamQso.Spots.Application.Health;
+using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Domain.Radio;
 using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure.Postgres;
@@ -19,7 +22,7 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
     {
         await postgres.StartAsync(TestContext.Current.CancellationToken);
         dataSource = NpgsqlDataSource.Create(postgres.GetConnectionString());
-        store = new PostgresSpotStore(dataSource);
+        store = new PostgresSpotStore(dataSource, NullSourceHealth.Instance);
         await store.EnsureSchemaAsync(TestContext.Current.CancellationToken);
     }
 
@@ -100,9 +103,98 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
     public async Task The_schema_can_be_applied_at_every_startup() =>
         await store.EnsureSchemaAsync(TestContext.Current.CancellationToken);
 
+    [Fact]
+    public async Task Every_save_gets_a_growing_seq_and_an_update_gets_a_new_one()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var first = await store.SaveAsync([Dx("JA1ABC"), Dx("VK2XYZ")], ct);
+        var update = await store.SaveAsync([first[0] with { Feeds = ["DXFun", "HamQTH"] }], ct);
+
+        Assert.True(first[0].Seq < first[1].Seq);
+        Assert.True(update[0].Seq > first[1].Seq);
+        var loaded = await store.LoadSinceAsync(Now.AddHours(-1), ct);
+        Assert.Equal(update[0].Seq, loaded.Single(s => s.Callsign == "JA1ABC").Seq);
+    }
+
+    [Fact]
+    public async Task The_latest_spots_of_a_filter_come_newest_first_with_the_current_seq()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await store.SaveAsync([Dx("OLDER", minutesAgo: 5), Dx("NEWER", minutesAgo: 1), Dx("ON40", minutesAgo: 0) with { FrequencyKhz = 7025, Band = null }], ct);
+        var pota = await store.SaveAsync([Pota("1")], ct);
+
+        var page = await store.LatestAsync(new SpotFilter(SpotProgram.Dx, ["20m"], ["cw"]), 10, ct);
+
+        Assert.Equal(["NEWER", "OLDER"], page.Spots.Select(s => s.Callsign));
+        Assert.Equal(pota[0].Seq, page.Seq);
+        Assert.Equal(["NEWER"], (await store.LatestAsync(new SpotFilter(SpotProgram.Dx, [], []), 2, ct)).Spots.Skip(1).Select(s => s.Callsign));
+    }
+
+    [Fact]
+    public async Task Other_band_and_other_mode_are_the_spots_without_them()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await store.SaveAsync([Dx("INBAND"), Dx("OUTBAND") with { SpotKey = "out", FrequencyKhz = 472.0, Band = null }], ct);
+
+        var other = await store.LatestAsync(new SpotFilter(SpotProgram.Dx, ["other"], []), 10, ct);
+
+        Assert.Equal(["OUTBAND"], other.Spots.Select(s => s.Callsign));
+    }
+
+    [Fact]
+    public async Task Since_seq_gives_only_what_was_saved_after_it_oldest_first()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var before = await store.SaveAsync([Dx("A")], ct);
+        await store.SaveAsync([Dx("B")], ct);
+        await store.SaveAsync([Dx("C")], ct);
+
+        var page = await store.ChangedSinceAsync(new SpotFilter(SpotProgram.Dx, [], []), before[0].Seq!.Value, 10, ct);
+
+        Assert.Equal(["B", "C"], page.Spots.Select(s => s.Callsign));
+    }
+
+    [Fact]
+    public async Task The_table_already_in_production_without_seq_upgrades_itself()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using (var connection = await dataSource.OpenConnectionAsync(ct))
+        {
+            // The table as deployed on 27/10/2026 (b341b02), with a row in it.
+            await connection.ExecuteAsync("""
+                drop table dx_spots;
+                drop sequence dx_spots_seq_counter;
+                create table dx_spots (program text not null, spot_key text not null, callsign text not null, frequency_khz double precision not null,
+                  spot_time timestamptz not null, feeds text[] not null, spotters text[] not null default '{}', band text, mode text not null default '',
+                  mode_source text, mode_category text, reference text, location text, dxcc integer, continent text, latitude double precision,
+                  longitude double precision, comment text, spotter_locator text, received_at timestamptz not null default now(), primary key (program, spot_key));
+                insert into dx_spots (program, spot_key, callsign, frequency_khz, spot_time, feeds) values ('dx', 'old', 'OLD1', 14025, now(), '{DXFun}');
+                """);
+        }
+
+        await store.EnsureSchemaAsync(ct);
+        var saved = await store.SaveAsync([Dx("NEW1")], ct);
+
+        var page = await store.LatestAsync(new SpotFilter(SpotProgram.Dx, [], []), 10, ct);
+        Assert.Equal(2, page.Spots.Count);
+        Assert.All(page.Spots, s => Assert.NotNull(s.Seq));
+        Assert.Equal(saved[0].Seq, page.Seq);
+    }
+
+    private static Spot Pota(string id) => SpotEnrichment.Enrich(new Spot
+    {
+        Program = SpotProgram.Pota,
+        SpotKey = id,
+        Callsign = "K8RLE",
+        FrequencyKhz = 7074,
+        SpotTime = Now,
+        Feeds = ["POTA"],
+        Mode = "FT8",
+    });
+
     private static void AssertSame(Spot expected, Spot actual)
     {
-        Assert.Equal(expected with { Feeds = [], Spotters = [] }, actual with { Feeds = [], Spotters = [] });
+        Assert.Equal(expected with { Feeds = [], Spotters = [], Seq = null }, actual with { Feeds = [], Spotters = [], Seq = null });
         Assert.Equal(expected.Feeds, actual.Feeds);
         Assert.Equal(expected.Spotters, actual.Spotters);
     }

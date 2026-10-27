@@ -30,7 +30,7 @@ public sealed class PolledSpotSource(IPolledFeed feed, HttpClient http, TimeSpan
             var body = await http.GetStringAsync(feed.Url, cancellationToken).ConfigureAwait(false);
             var spots = feed.Parse(body, time.GetUtcNow());
             health.Succeeded(Name);
-            return new SpotBatch(Name, spots, feed.SnapshotOf);
+            return new SpotBatch(Name, spots);
         }
         catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

@@ -26,3 +26,13 @@ create table if not exists dx_spots (
 
 create index if not exists dx_spots_spot_time on dx_spots (spot_time);
 create index if not exists dx_spots_callsign on dx_spots (callsign, spot_time desc);
+
+-- seq (27/10/2026): order of the saves, for the apps' since_seq. Added in place
+-- so that the table already in production upgrades itself; existing rows get one.
+create sequence if not exists dx_spots_seq_counter;
+alter table dx_spots add column if not exists seq bigint;
+update dx_spots set seq = nextval('dx_spots_seq_counter') where seq is null;
+alter table dx_spots alter column seq set default nextval('dx_spots_seq_counter');
+alter table dx_spots alter column seq set not null;
+create index if not exists dx_spots_seq_idx on dx_spots (seq);
+create index if not exists dx_spots_program_time_idx on dx_spots (program, spot_time desc);

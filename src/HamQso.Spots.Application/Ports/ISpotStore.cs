@@ -5,8 +5,8 @@ namespace HamQso.Spots.Application.Ports;
 /// <summary>The archive (Postgres, 7 days).</summary>
 public interface ISpotStore
 {
-    /// <summary>Inserts new spots and updates merged ones (same program and key).</summary>
-    Task SaveAsync(IReadOnlyCollection<Spot> spots, CancellationToken cancellationToken);
+    /// <summary>Inserts new spots and updates merged ones (same program and key); returns them with their new seq.</summary>
+    Task<IReadOnlyList<Spot>> SaveAsync(IReadOnlyCollection<Spot> spots, CancellationToken cancellationToken);
 
     /// <summary>Spots from <paramref name="since"/> on, oldest first: reloads the dedup and the topics at startup.</summary>
     Task<IReadOnlyList<Spot>> LoadSinceAsync(DateTimeOffset since, CancellationToken cancellationToken);

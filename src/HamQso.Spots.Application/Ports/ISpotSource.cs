@@ -18,8 +18,5 @@ public interface ISpotSource
     IAsyncEnumerable<SpotBatch> ReadAsync(ISourceHealth health, CancellationToken cancellationToken);
 }
 
-/// <summary>
-/// Spots from one read of a source. A snapshot is the whole list of active
-/// spots of an xOTA program; DX batches carry only what arrived.
-/// </summary>
-public sealed record SpotBatch(string Feed, IReadOnlyList<Spot> Spots, SpotProgram? SnapshotOf = null);
+/// <summary>Spots from one read of a source.</summary>
+public sealed record SpotBatch(string Feed, IReadOnlyList<Spot> Spots);

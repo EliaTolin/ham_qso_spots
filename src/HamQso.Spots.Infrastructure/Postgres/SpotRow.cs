@@ -8,6 +8,8 @@ internal sealed record SpotRow
 {
     public required string Program { get; init; }
 
+    public long? Seq { get; init; }
+
     public required string SpotKey { get; init; }
 
     public required string Callsign { get; init; }
@@ -70,6 +72,7 @@ internal sealed record SpotRow
     public Spot ToSpot() => new()
     {
         Program = SpotJson.Parse<SpotProgram>(Program),
+        Seq = Seq,
         SpotKey = SpotKey,
         Callsign = Callsign,
         FrequencyKhz = FrequencyKhz,

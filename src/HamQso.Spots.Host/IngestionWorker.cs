@@ -38,6 +38,7 @@ public sealed partial class IngestionWorker(
         foreach (var source in list) health.Register(source.Name);
         health.Register(MqttSpotPublisher.HealthName);
         health.Register(SupabaseAlertNotifier.HealthName);
+        health.Register(PostgresSpotStore.HealthName);
         await Task.WhenAll(list.Select(s => RunAsync(s, stoppingToken)));
     }
 

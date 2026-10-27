@@ -11,8 +11,6 @@ public sealed class DxSummitFeed : IPolledFeed
 
     public Uri Url { get; } = new("https://www.dxsummit.fi/api/v1/spots?limit=100");
 
-    public SpotProgram? SnapshotOf => null;
-
     public IReadOnlyList<Spot> Parse(string body, DateTimeOffset now)
     {
         using var doc = JsonDocument.Parse(body);

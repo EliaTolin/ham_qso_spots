@@ -22,6 +22,9 @@ public static class Bands
         ("23cm", 1240000, 1300000),
     ];
 
+    /// <summary>Every band label, lowest first ("160m" ... "23cm").</summary>
+    public static IReadOnlyList<string> Labels { get; } = [.. All.Select(b => b.Label)];
+
     /// <summary>The band of a frequency, or null outside the amateur bands.</summary>
     public static string? Of(double khz)
     {

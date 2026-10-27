@@ -9,9 +9,6 @@ public interface IPolledFeed
 
     Uri Url { get; }
 
-    /// <summary>Set when every answer is the whole list of active spots of a program.</summary>
-    SpotProgram? SnapshotOf { get; }
-
     /// <summary>The spots in a response body; malformed rows are skipped. Pure.</summary>
     IReadOnlyList<Spot> Parse(string body, DateTimeOffset now);
 }

@@ -10,8 +10,6 @@ public sealed class SotaFeed : IPolledFeed
 
     public Uri Url { get; } = new("https://api-db2.sota.org.uk/api/spots/50/all/all");
 
-    public SpotProgram? SnapshotOf => SpotProgram.Sota;
-
     public IReadOnlyList<Spot> Parse(string body, DateTimeOffset now)
     {
         using var doc = JsonDocument.Parse(body);

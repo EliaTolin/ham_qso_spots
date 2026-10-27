@@ -62,38 +62,38 @@ public sealed class IngestSpotsTests : IDisposable
     }
 
     [Fact]
-    public async Task A_spot_arrives_on_the_topic_of_its_band_and_mode_with_the_whole_list()
+    public async Task Only_the_new_spot_goes_out_on_its_topic_with_the_seq_of_the_archive()
     {
-        await Receive(Dx("JA1ABC", 14025.0, "DXFun", minutesAgo: 1));
+        await Receive(Dx("JA1ABC", 14025.0, "DXFun"));
         await Receive(Dx("VK2XYZ", 14030.0, "DXFun"));
 
-        var message = publisher.Last("spots/dx/20m/cw");
-        Assert.Equal(["VK2XYZ", "JA1ABC"], message.Select(s => s.Callsign));
+        var messages = publisher.All("spots/dx/20m/cw");
+        Assert.Equal(2, messages.Length);
+        var last = Assert.Single(messages[^1]);
+        Assert.Equal(("VK2XYZ", 2L), (last.Callsign, last.Seq));
     }
 
     [Fact]
-    public async Task The_retained_DX_lists_hold_the_last_50_spots_in_all()
+    public async Task A_merged_duplicate_goes_out_again_with_a_new_seq()
     {
-        for (var i = 0; i < IngestSpots.RecentDxCapacity + 10; i++)
-        {
-            time.Advance(TimeSpan.FromSeconds(1));
-            await Receive(Dx($"K{i}AA", 14025.0 + i, "DXFun", minutesAgo: 0) with { SpotTime = time.GetUtcNow() });
-        }
+        await Receive(Dx("JA1ABC", 14025.0, "DXFun"));
+        await Receive(Dx("JA1ABC", 14025.1, "HamQTH", spotter: "DL1HBT"));
 
-        var total = publisher.Topics.Where(t => t.StartsWith("spots/dx/", StringComparison.Ordinal)).Sum(t => publisher.Last(t).Count);
-        Assert.Equal(IngestSpots.RecentDxCapacity, total);
+        var update = Assert.Single(publisher.All("spots/dx/20m/cw")[^1]);
+        Assert.Equal(["DXFun", "HamQTH"], update.Feeds);
+        Assert.Equal(2L, update.Seq);
     }
 
     [Fact]
-    public async Task An_xOTA_snapshot_is_published_whole_and_only_when_it_changes()
+    public async Task An_xOTA_feed_read_again_without_changes_publishes_nothing_new()
     {
-        await ingest.HandleAsync(new SpotBatch("POTA", [Pota("1"), Pota("2", "DF5WC", 14058.5)], SpotProgram.Pota), CancellationToken.None);
-        await ingest.HandleAsync(new SpotBatch("POTA", [Pota("1"), Pota("2", "DF5WC", 14058.5)], SpotProgram.Pota), CancellationToken.None);
-        await ingest.HandleAsync(new SpotBatch("POTA", [Pota("2", "DF5WC", 14058.5)], SpotProgram.Pota), CancellationToken.None);
+        await Receive(Pota("1"), Pota("2", "DF5WC", 14058.5));
+        await Receive(Pota("1"), Pota("2", "DF5WC", 14058.5));
+        await Receive(Pota("1"), Pota("2", "DF5WC", 14058.5), Pota("3", "IU4ABC", 7100));
 
         var messages = publisher.All("spots/pota");
         Assert.Equal(2, messages.Length);
-        Assert.Equal(["DF5WC"], messages[^1].Select(s => s.Callsign));
+        Assert.Equal(["IU4ABC"], messages[^1].Select(s => s.Callsign));
     }
 
     [Fact]
@@ -106,26 +106,26 @@ public sealed class IngestSpotsTests : IDisposable
     }
 
     [Fact]
-    public async Task The_broker_gets_the_spot_even_when_the_archive_is_down()
+    public async Task With_the_archive_down_nothing_is_published_but_the_alerts_go_out()
     {
         store.Fail = true;
 
         await Receive(Dx("JA1ABC", 14025.0, "DXFun"));
 
-        Assert.Single(publisher.Last("spots/dx/20m/cw"));
+        Assert.Empty(publisher.Topics);
         Assert.Single(alerts.Notified);
     }
 
     [Fact]
-    public async Task After_a_restart_spots_already_archived_are_not_alerted_again()
+    public async Task After_a_restart_spots_already_archived_are_neither_alerted_nor_published_again()
     {
         store.Archive.Add(SpotEnrichment.Enrich(Dx("JA1ABC", 14025.0, "DXFun", minutesAgo: 2)));
 
         await ingest.StartAsync(CancellationToken.None);
-        await Receive(Dx("JA1ABC", 14025.0, "HamQTH"));
+        await Receive(Dx("JA1ABC", 14025.0, "DXFun", minutesAgo: 2));
 
         Assert.Empty(alerts.Notified);
-        Assert.Single(publisher.Last("spots/dx/20m/cw"));
+        Assert.Empty(publisher.Topics);
     }
 
     [Fact]
@@ -152,19 +152,23 @@ public sealed class IngestSpotsTests : IDisposable
         public Task PublishAsync(string topic, IReadOnlyList<Spot> spots, CancellationToken cancellationToken) => released.Task;
     }
 
+    /// <summary>Gives every saved spot the next seq, as Postgres does.</summary>
     private sealed class FakeStore : ISpotStore
     {
+        private long seq;
+
         public List<Spot> Archive { get; } = [];
 
         public List<Spot> Saved { get; } = [];
 
         public bool Fail { get; set; }
 
-        public Task SaveAsync(IReadOnlyCollection<Spot> spots, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<Spot>> SaveAsync(IReadOnlyCollection<Spot> spots, CancellationToken cancellationToken)
         {
             if (Fail) throw new InvalidOperationException("Postgres down");
-            Saved.AddRange(spots);
-            return Task.CompletedTask;
+            var saved = spots.Select(s => s with { Seq = ++seq }).ToArray();
+            Saved.AddRange(saved);
+            return Task.FromResult<IReadOnlyList<Spot>>(saved);
         }
 
         public Task<IReadOnlyList<Spot>> LoadSinceAsync(DateTimeOffset since, CancellationToken cancellationToken) =>
@@ -178,8 +182,6 @@ public sealed class IngestSpotsTests : IDisposable
         private readonly List<(string Topic, IReadOnlyList<Spot> Spots)> messages = [];
 
         public IEnumerable<string> Topics => messages.Select(m => m.Topic).Distinct();
-
-        public IReadOnlyList<Spot> Last(string topic) => messages.Last(m => m.Topic == topic).Spots;
 
         public IReadOnlyList<Spot>[] All(string topic) => messages.Where(m => m.Topic == topic).Select(m => m.Spots).ToArray();
 

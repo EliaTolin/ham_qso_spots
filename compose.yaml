@@ -35,8 +35,6 @@ services:
     # Configuration inside the image (deploy/mosquitto/Dockerfile): no repo file is mounted.
     build: deploy/mosquitto
     restart: unless-stopped
-    volumes:
-      - mosquitto-data:/mosquitto/data
     expose:
       - "1883"
       - "9001"
@@ -45,4 +43,3 @@ services:
 
 volumes:
   postgres-data:
-  mosquitto-data:

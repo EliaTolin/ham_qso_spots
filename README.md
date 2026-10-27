@@ -10,15 +10,25 @@ Server degli spot di HamQSO (F24): raccoglie gli spot da nodi DX cluster, HamQTH
 
 ```
 Fonti (4 nodi telnet, HamQTH, DX Summit, POTA, SOTA, WWFF)
-  → IngestSpots: arricchimento, dedup (call + kHz + 10 min), Postgres dx_spots (7 giorni)
-  → Mosquitto: un messaggio salvato per topic, con la lista intera
-      spots/dx/<banda>/<cw|phone|digital|other>   (50 spot DX in tutto)
-      spots/pota, spots/sota, spots/wwff          (tutti gli spot attivi)
+  → IngestSpots: arricchimento, dedup (call + kHz + 10 min)
+  → Postgres dx_spots (7 giorni): ogni spot salvato, nuovo o aggiornato, prende un seq crescente
+  → Mosquitto: solo le novità, non salvate      spots/dx/<banda>/<cw|phone|digital|other>, spots/pota|sota|wwff
   → Supabase: edge function alert_spots (avvisi e push) per gli spot nuovi
 ```
 
-- `GET /health` (porta 8080, pubblica): stato di ogni fonte, senza dettagli degli errori.
-- `POST /mqtt/user|superuser|acl` (porta 8081, solo rete Docker): backend HTTP di `mosquitto-go-auth`. Le app si collegano con il token di accesso Supabase come password; solo l'utente `ingestor` pubblica.
+### Protocollo per le app
+
+Un solo formato, senza compressione: `{"seq": 1042, "full": false, "spots": [{spot con il suo seq}, …]}` (campi snake_case come le colonne di `dx_spots`). Niente remove né scadenze: l'app mostra "X minuti fa" da `spot_time`.
+
+- **MQTT** `wss://spot.hamqso.app/mqtt` (username l'id utente, password il token di accesso Supabase): le novità di ogni topic, `full: false`.
+- **REST** `GET https://spot.hamqso.app/v1/spots` (`Authorization: Bearer <token Supabase>`):
+  - `program` (obbligatorio: `dx`, `pota`, `sota`, `wwff`), `band` e `mode` (i segmenti dei topic, ripetibili o separati da virgola), `limit` (max e default 200), `since_seq`;
+  - senza `since_seq`: gli ultimi 200 per `spot_time`, `full: true`;
+  - con `since_seq`: gli spot salvati dopo, `full: false`; se sono più di 200, la lista attuale con `full: true`.
+- **App**: si iscrive a MQTT e tiene da parte le novità → chiede la lista → applica le novità con `seq` maggiore; a ogni riconnessione `since_seq` con l'ultimo seq visto.
+
+- `GET /health` (porta 8080, pubblica): stato di fonti, `broker`, `alerts`, `archive`, senza dettagli degli errori.
+- `POST /mqtt/user|superuser|acl` (porta 8081, solo rete Docker): backend HTTP di `mosquitto-go-auth`; solo l'utente `ingestor` pubblica.
 - Nodi telnet e intervalli delle fonti: `appsettings.json` (`Telnet`, `Feeds`).
 
 ## Sviluppo
@@ -42,7 +52,7 @@ Stampa (e copia) un token di accesso Supabase, valido circa un'ora, di un utente
 TOKEN=$(scripts/mqtt-token.sh) dotnet run -c Release --project tools/HamQso.Spots.LoadTest -- --steps 100,250,500,1000 --hold 60
 ```
 
-Simula N app collegate via WebSocket (iscritte a `spots/dx/#` e `spots/pota`), a gradini; misura connessioni, tempo di connessione e ritardo di consegna dello stesso messaggio a tutti. Si ferma da solo se più dell'1% delle connessioni fallisce, se le app collegate calano o se `/health` non è `Healthy`, e chiude tutte le connessioni.
+Simula N app collegate via WebSocket (iscritte a `spots/dx/#` e `spots/pota`), a gradini; misura connessioni, tempo di connessione e ritardo di consegna della stessa novità a tutti. Si ferma da solo se più dell'1% delle connessioni fallisce, se le app collegate calano o se `/health` non è `Healthy`, e chiude tutte le connessioni.
 
 ## Test end-to-end (produzione)
 

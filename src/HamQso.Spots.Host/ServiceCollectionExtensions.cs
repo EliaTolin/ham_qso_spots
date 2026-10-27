@@ -2,6 +2,7 @@ using HamQso.Spots.Application.Access;
 using HamQso.Spots.Application.Dedup;
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
+using HamQso.Spots.Application.Reading;
 using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Infrastructure.Alerts;
 using HamQso.Spots.Infrastructure.Auth;
@@ -32,6 +33,8 @@ public static class ServiceCollectionExtensions
             ?? throw new InvalidOperationException("ConnectionStrings:Spots is missing")));
         services.AddSingleton<PostgresSpotStore>();
         services.AddSingleton<ISpotStore>(sp => sp.GetRequiredService<PostgresSpotStore>());
+        services.AddSingleton<ISpotReader>(sp => sp.GetRequiredService<PostgresSpotStore>());
+        services.AddSingleton<GetSpots>();
         services.AddSingleton<ISourceHealth>(sp => sp.GetRequiredService<SourceHealthRegistry>());
         services.AddSingleton<ISpotPublisher, MqttSpotPublisher>();
         services.AddHttpClient<IAlertNotifier, SupabaseAlertNotifier>();

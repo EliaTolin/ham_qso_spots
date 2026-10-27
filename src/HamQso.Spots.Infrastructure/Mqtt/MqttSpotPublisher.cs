@@ -8,8 +8,8 @@ using MQTTnet.Protocol;
 namespace HamQso.Spots.Infrastructure.Mqtt;
 
 /// <summary>
-/// Publishes every topic list to Mosquitto as one retained message (QoS 1), so an
-/// app that connects gets the current lists at once. Connects on first use and
+/// Publishes the news of a topic to Mosquitto (QoS 1, not retained: the apps get
+/// the starting list from GET /v1/spots). Connects on first use and
 /// again after a drop. A broker that does not answer fails fast (B21): at most
 /// <see cref="ConnectTimeout"/> per attempt, then no new attempt for
 /// <see cref="RetryAfter"/>; /health shows it as "broker".
@@ -32,9 +32,8 @@ public sealed class MqttSpotPublisher(IOptions<MqttOptions> options, ISourceHeal
         await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false);
         var message = new MqttApplicationMessageBuilder()
             .WithTopic(topic)
-            .WithPayload(Encoding.UTF8.GetBytes(SpotJson.Serialize(spots)))
+            .WithPayload(Encoding.UTF8.GetBytes(SpotJson.Serialize(new SpotPage(spots.Max(s => s.Seq) ?? 0, false, spots))))
             .WithContentType("application/json")
-            .WithRetainFlag()
             .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
             .Build();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

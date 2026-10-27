@@ -11,8 +11,6 @@ public sealed partial class WwffFeed : IPolledFeed
 
     public Uri Url { get; } = new("https://spots.wwff.co/static/spots.json");
 
-    public SpotProgram? SnapshotOf => SpotProgram.Wwff;
-
     public IReadOnlyList<Spot> Parse(string body, DateTimeOffset now)
     {
         using var doc = JsonDocument.Parse(body);

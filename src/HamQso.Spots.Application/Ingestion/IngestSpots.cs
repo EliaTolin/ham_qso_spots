@@ -5,9 +5,11 @@ using Microsoft.Extensions.Logging;
 namespace HamQso.Spots.Application.Ingestion;
 
 /// <summary>
-/// Receive spots, drop duplicates, enrich, save, publish, alert. One batch at
-/// a time, whatever source it comes from. A failing step is logged and the
-/// others go on: the broker keeps serving even when the archive is down.
+/// Receive spots, drop duplicates, enrich, save, publish what changed, alert.
+/// One batch at a time, whatever source it comes from. The archive gives every
+/// saved spot its seq, so only saved spots are published (as news: the apps
+/// get the starting list from GET /v1/spots). The alerts run side by side and
+/// never wait for the archive or the broker (B21).
 /// </summary>
 public sealed partial class IngestSpots(
     ISpotDeduplicator deduplicator,
@@ -17,17 +19,12 @@ public sealed partial class IngestSpots(
     TimeProvider time,
     ILogger<IngestSpots> logger) : IDisposable
 {
-    /// <summary>Spots in the retained DX lists, all topics together.</summary>
-    public const int RecentDxCapacity = 50;
-
     /// <summary>Older spots (a telnet backlog after a reconnect) never trigger an alert.</summary>
     public static readonly TimeSpan AlertFreshness = TimeSpan.FromMinutes(15);
 
     private readonly SemaphoreSlim gate = new(1, 1);
-    private readonly RecentDxSpots recentDx = new(RecentDxCapacity);
-    private readonly Dictionary<SpotProgram, Spot[]> snapshots = [];
 
-    /// <summary>Reloads the dedup and the DX lists from the archive, then republishes the DX topics.</summary>
+    /// <summary>Reloads the dedup from the archive, so a restart neither republishes nor re-alerts.</summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var since = time.GetUtcNow() - (2 * DuplicateRule.Window);
@@ -45,8 +42,6 @@ public sealed partial class IngestSpots(
         try
         {
             deduplicator.Seed(archived);
-            var topics = recentDx.Apply(archived.Where(s => s.Program == SpotProgram.Dx));
-            await PublishDxAsync(topics, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -68,13 +63,7 @@ public sealed partial class IngestSpots(
                 .ToArray();
             var fresh = results.Where(r => r.Outcome == DedupOutcome.New).Select(r => r.Spot).ToArray();
 
-            if (changed.Length > 0) await RunAsync("save", () => store.SaveAsync(changed, cancellationToken)).ConfigureAwait(false);
-
-            // Side by side: a broker that does not answer must not hold the alerts back (B21).
-            var publishing = batch.SnapshotOf is { } program
-                ? PublishSnapshotAsync(program, results.Select(r => r.Spot).ToArray(), cancellationToken)
-                : changed.Length > 0 ? PublishDxAsync(recentDx.Apply(changed), cancellationToken) : Task.CompletedTask;
-
+            var publishing = changed.Length > 0 ? SaveAndPublishAsync(changed, cancellationToken) : Task.CompletedTask;
             var alertable = fresh.Where(s => time.GetUtcNow() - s.SpotTime <= AlertFreshness).ToArray();
             var alerting = alertable.Length > 0 ? RunAsync("alerts", () => alerts.NotifyAsync(alertable, cancellationToken)) : Task.CompletedTask;
 
@@ -86,29 +75,24 @@ public sealed partial class IngestSpots(
         }
     }
 
-    private async Task PublishDxAsync(IReadOnlySet<string> topics, CancellationToken cancellationToken)
+    private async Task SaveAndPublishAsync(Spot[] changed, CancellationToken cancellationToken)
     {
-        foreach (var topic in topics)
+        IReadOnlyList<Spot> saved;
+        try
         {
-            await RunAsync("publish", () => publisher.PublishAsync(topic, recentDx.ListOf(topic), cancellationToken)).ConfigureAwait(false);
+            saved = await store.SaveAsync(changed, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // Without a seq the news cannot be ordered: not published.
+            LogStepFailed(logger, e, "save");
+            return;
+        }
+        foreach (var topic in saved.GroupBy(SpotTopics.Of))
+        {
+            await RunAsync("publish", () => publisher.PublishAsync(topic.Key, [.. topic], cancellationToken)).ConfigureAwait(false);
         }
     }
-
-    /// <summary>An xOTA list is republished only when something in it changed.</summary>
-    private async Task PublishSnapshotAsync(SpotProgram program, IReadOnlyList<Spot> spots, CancellationToken cancellationToken)
-    {
-        var ordered = spots.OrderByDescending(s => s.SpotTime).ToArray();
-        if (snapshots.TryGetValue(program, out var last) && SameList(last, ordered)) return;
-        snapshots[program] = ordered;
-        await RunAsync("publish", () => publisher.PublishAsync(SpotTopics.OfProgram(program), ordered, cancellationToken)).ConfigureAwait(false);
-    }
-
-    private static bool SameList(Spot[] a, Spot[] b) =>
-        a.Length == b.Length && a.Zip(b).All(p => p.First.SpotKey == p.Second.SpotKey
-            && p.First.FrequencyKhz.Equals(p.Second.FrequencyKhz)
-            && p.First.Mode == p.Second.Mode
-            && p.First.Comment == p.Second.Comment
-            && p.First.SpotTime == p.Second.SpotTime);
 
     private async Task RunAsync(string step, Func<Task> action)
     {

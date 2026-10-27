@@ -16,8 +16,6 @@ public sealed class HamQthFeed : IPolledFeed
 
     public Uri Url { get; } = new("https://www.hamqth.com/api/v2/spots?limit=200");
 
-    public SpotProgram? SnapshotOf => null;
-
     public IReadOnlyList<Spot> Parse(string body, DateTimeOffset now)
     {
         using var doc = JsonDocument.Parse(body);

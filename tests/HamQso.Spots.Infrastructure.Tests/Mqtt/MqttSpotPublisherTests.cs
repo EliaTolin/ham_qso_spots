@@ -40,7 +40,7 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
         await mosquitto.DisposeAsync();
     }
 
-    private static Spot Dx(string call) => SpotEnrichment.Enrich(new Spot
+    private static Spot Dx(string call, long seq) => SpotEnrichment.Enrich(new Spot
     {
         Program = SpotProgram.Dx,
         SpotKey = call,
@@ -49,28 +49,43 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
         SpotTime = new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero),
         Feeds = ["DXFun"],
         Comment = "CW 599",
+        Seq = seq,
     });
 
     [Fact]
-    public async Task An_app_that_connects_later_gets_the_whole_list_of_its_topic_at_once()
+    public async Task A_connected_app_gets_the_news_with_their_seq()
     {
-        await publisher.PublishAsync("spots/dx/20m/cw", [Dx("JA1ABC")], TestContext.Current.CancellationToken);
-        await publisher.PublishAsync("spots/dx/20m/cw", [Dx("VK2XYZ"), Dx("JA1ABC")], TestContext.Current.CancellationToken);
+        await using var app = await Subscriber.ConnectAsync(mosquitto, "spots/dx/#");
 
-        var received = await ReceiveRetained("spots/dx/#");
+        await publisher.PublishAsync("spots/dx/20m/cw", [Dx("VK2XYZ", 41), Dx("JA1ABC", 42)], TestContext.Current.CancellationToken);
 
-        var (topic, json) = Assert.Single(received);
+        var (topic, json) = Assert.Single(await app.ReceivedAsync());
         Assert.Equal("spots/dx/20m/cw", topic);
-        Assert.Equal(["VK2XYZ", "JA1ABC"], SpotJson.Deserialize(json).Select(s => s.Callsign));
+        var page = SpotJson.Deserialize(json);
+        Assert.Equal((42L, false), (page.Seq, page.Full));
+        Assert.Equal(["VK2XYZ", "JA1ABC"], page.Spots.Select(s => s.Callsign));
+    }
+
+    [Fact]
+    public async Task The_news_are_not_kept_an_app_that_connects_later_gets_nothing()
+    {
+        await publisher.PublishAsync("spots/dx/20m/cw", [Dx("JA1ABC", 1)], TestContext.Current.CancellationToken);
+
+        await using var late = await Subscriber.ConnectAsync(mosquitto, "spots/#");
+
+        Assert.Empty(await late.ReceivedAsync());
     }
 
     [Fact]
     public async Task Messages_use_the_snake_case_fields_of_the_dx_spots_table()
     {
-        await publisher.PublishAsync("spots/dx/20m/cw", [Dx("JA1ABC")], TestContext.Current.CancellationToken);
+        await using var app = await Subscriber.ConnectAsync(mosquitto, "spots/dx/20m/cw");
 
-        var (_, json) = Assert.Single(await ReceiveRetained("spots/dx/20m/cw"));
+        await publisher.PublishAsync("spots/dx/20m/cw", [Dx("JA1ABC", 7)], TestContext.Current.CancellationToken);
 
+        var (_, json) = Assert.Single(await app.ReceivedAsync());
+        Assert.Contains("\"seq\":7", json, StringComparison.Ordinal);
+        Assert.Contains("\"full\":false", json, StringComparison.Ordinal);
         Assert.Contains("\"program\":\"dx\"", json, StringComparison.Ordinal);
         Assert.Contains("\"spot_key\":\"JA1ABC\"", json, StringComparison.Ordinal);
         Assert.Contains("\"frequency_khz\":14025", json, StringComparison.Ordinal);
@@ -78,22 +93,37 @@ public sealed class MqttSpotPublisherTests : IAsyncLifetime
         Assert.Contains("\"mode_category\":\"cw\"", json, StringComparison.Ordinal);
     }
 
-    /// <summary>A new client subscribes and collects what the broker sends in the first second.</summary>
-    private async Task<List<(string Topic, string Json)>> ReceiveRetained(string filter)
+    /// <summary>An app on the broker: subscribes, then collects what arrives.</summary>
+    private sealed class Subscriber : IAsyncDisposable
     {
-        using var client = new MqttClientFactory().CreateMqttClient();
-        var received = new List<(string, string)>();
-        client.ApplicationMessageReceivedAsync += e =>
+        private readonly IMqttClient client = new MqttClientFactory().CreateMqttClient();
+        private readonly List<(string Topic, string Json)> received = [];
+
+        public static async Task<Subscriber> ConnectAsync(DotNet.Testcontainers.Containers.IContainer broker, string filter)
         {
-            lock (received) received.Add((e.ApplicationMessage.Topic, e.ApplicationMessage.ConvertPayloadToString()));
-            return Task.CompletedTask;
-        };
-        await client.ConnectAsync(
-            new MqttClientOptionsBuilder().WithTcpServer(mosquitto.Hostname, mosquitto.GetMappedPublicPort(1883)).Build(),
-            TestContext.Current.CancellationToken);
-        await client.SubscribeAsync(filter, cancellationToken: TestContext.Current.CancellationToken);
-        await Task.Delay(1000, TestContext.Current.CancellationToken);
-        await client.DisconnectAsync(cancellationToken: TestContext.Current.CancellationToken);
-        lock (received) return [.. received];
+            var s = new Subscriber();
+            s.client.ApplicationMessageReceivedAsync += e =>
+            {
+                lock (s.received) s.received.Add((e.ApplicationMessage.Topic, e.ApplicationMessage.ConvertPayloadToString()));
+                return Task.CompletedTask;
+            };
+            await s.client.ConnectAsync(
+                new MqttClientOptionsBuilder().WithTcpServer(broker.Hostname, broker.GetMappedPublicPort(1883)).Build(),
+                TestContext.Current.CancellationToken);
+            await s.client.SubscribeAsync(filter, cancellationToken: TestContext.Current.CancellationToken);
+            return s;
+        }
+
+        public async Task<List<(string Topic, string Json)>> ReceivedAsync()
+        {
+            await Task.Delay(1000, TestContext.Current.CancellationToken);
+            lock (received) return [.. received];
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (client.IsConnected) await client.DisconnectAsync();
+            client.Dispose();
+        }
     }
 }

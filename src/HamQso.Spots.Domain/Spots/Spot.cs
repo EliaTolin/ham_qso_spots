@@ -11,6 +11,12 @@ public sealed record Spot
 {
     public required SpotProgram Program { get; init; }
 
+    /// <summary>
+    /// Order of the save, given by the archive: grows at every new or updated
+    /// spot. The apps keep the highest they have seen (since_seq).
+    /// </summary>
+    public long? Seq { get; init; }
+
     /// <summary>Id of the spot at its source (xOTA) or built from call, kHz and time (DX).</summary>
     public required string SpotKey { get; init; }
 

@@ -1,0 +1,48 @@
+# Spots server (F24) on Coolify: server, Postgres (7-day archive), Mosquitto.
+# Secrets come from Coolify variables: SUPABASE_SECRET_KEY, MQTT_INGESTOR_PASSWORD, POSTGRES_PASSWORD.
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    environment:
+      ConnectionStrings__Spots: Host=postgres;Port=5432;Database=spots;Username=spots;Password=${POSTGRES_PASSWORD:?}
+      Mqtt__Host: mosquitto
+      Mqtt__Password: ${MQTT_INGESTOR_PASSWORD:?}
+      Supabase__SecretKey: ${SUPABASE_SECRET_KEY:?}
+    expose:
+      - "8080"
+      - "8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spots
+      POSTGRES_USER: spots
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spots -d spots"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mosquitto:
+    image: iegomez/mosquitto-go-auth:3.0.0-mosquitto_2.0.18
+    restart: unless-stopped
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    expose:
+      - "1883"
+      - "9001"
+    depends_on:
+      - server
+
+volumes:
+  postgres-data:
+  mosquitto-data:

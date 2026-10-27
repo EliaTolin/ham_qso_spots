@@ -9,5 +9,6 @@
     <Project Path="tests/HamQso.Spots.Domain.Tests/HamQso.Spots.Domain.Tests.csproj" />
     <Project Path="tests/HamQso.Spots.Application.Tests/HamQso.Spots.Application.Tests.csproj" />
     <Project Path="tests/HamQso.Spots.Infrastructure.Tests/HamQso.Spots.Infrastructure.Tests.csproj" />
+    <Project Path="tests/HamQso.Spots.Host.Tests/HamQso.Spots.Host.Tests.csproj" />
   </Folder>
 </Solution>

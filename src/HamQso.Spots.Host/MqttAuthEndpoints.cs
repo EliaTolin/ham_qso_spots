@@ -9,9 +9,9 @@ namespace HamQso.Spots.Host;
 /// </summary>
 public static class MqttAuthEndpoints
 {
-    public static void MapMqttAuth(this IEndpointRouteBuilder app, string host)
+    public static void MapMqttAuth(this IEndpointRouteBuilder app, int internalPort)
     {
-        var mqtt = app.MapGroup("/mqtt").RequireHost(host);
+        var mqtt = app.MapGroup("/mqtt").RequireInternalPort(internalPort);
         mqtt.MapPost("/user", async (UserRequest request, MqttAccess access, CancellationToken ct) =>
             await access.AuthenticateAsync(request.Username, request.Password, ct) ? Results.Ok() : Results.StatusCode(StatusCodes.Status403Forbidden));
         // No superusers: every client goes through the ACL.

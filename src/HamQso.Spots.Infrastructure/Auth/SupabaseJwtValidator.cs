@@ -7,52 +7,85 @@ using Microsoft.IdentityModel.Tokens;
 namespace HamQso.Spots.Infrastructure.Auth;
 
 /// <summary>
-/// Verifies a Supabase access token with the project's public keys (JWKS,
-/// ES256), kept for <see cref="KeysLifetime"/>. Issuer, audience
+/// Verifies a Supabase access token with the public keys (JWKS, ES256) of the
+/// project that issued it, kept for <see cref="KeysLifetime"/>. Accepted
+/// projects: HamQSO (<see cref="SupabaseOptions.Url"/>) and the readers
+/// (<see cref="SupabaseOptions.ReaderUrls"/>, HamQRG). Issuer, audience
 /// "authenticated" and expiry are checked; no shared secret is needed.
 /// </summary>
-public sealed class SupabaseJwtValidator(IOptions<SupabaseOptions> options, HttpClient http, TimeProvider time) : ITokenValidator, IDisposable
+public sealed class SupabaseJwtValidator : ITokenValidator, IDisposable
 {
     public static readonly TimeSpan KeysLifetime = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// A forged token with an unknown key must not make every connection hit
-    /// Supabase: at most one forced refresh, or one retry after a failure, per minute.
+    /// Supabase: at most one forced refresh, or one retry after a failure, per minute
+    /// and per project.
     /// </summary>
     public static readonly TimeSpan MinRefresh = TimeSpan.FromMinutes(1);
 
     private static readonly TimeSpan ClockSkew = TimeSpan.FromSeconds(30);
 
     private readonly JsonWebTokenHandler handler = new();
-    private readonly SemaphoreSlim refreshing = new(1, 1);
-    private IList<SecurityKey> keys = [];
-    private DateTimeOffset keysUntil = DateTimeOffset.MinValue;
-    private DateTimeOffset lastForced = DateTimeOffset.MinValue;
+    private readonly HttpClient http;
+    private readonly TimeProvider time;
 
-    private Uri AuthUrl => new(options.Value.Url, "auth/v1");
+    /// <summary>
+    /// By issuer. A token of any other issuer is refused before any request:
+    /// the keys are fetched only from the configured projects.
+    /// </summary>
+    private readonly Dictionary<string, ProjectKeys> projects;
+
+    public SupabaseJwtValidator(IOptions<SupabaseOptions> options, HttpClient http, TimeProvider time)
+    {
+        this.http = http;
+        this.time = time;
+        projects = new[] { options.Value.Url }
+            .Concat(options.Value.ReaderUrls)
+            .Select(url => new ProjectKeys(new Uri(url, "auth/v1")))
+            .DistinctBy(p => p.Issuer)
+            .ToDictionary(p => p.Issuer);
+    }
 
     public async Task<bool> IsValidAsync(string token, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(token) || !handler.CanReadToken(token)) return false;
-        var result = await ValidateAsync(token, await KeysAsync(false, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+        if (!projects.TryGetValue(IssuerOf(token) ?? "", out var project)) return false;
+        var result = await ValidateAsync(token, project, await KeysAsync(project, false, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
         // A new signing key (rotation): fetch the set again once.
         if (!result.IsValid && result.Exception is SecurityTokenSignatureKeyNotFoundException)
         {
-            result = await ValidateAsync(token, await KeysAsync(true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+            result = await ValidateAsync(token, project, await KeysAsync(project, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
         }
         return result.IsValid;
     }
 
-    public void Dispose() => refreshing.Dispose();
+    public void Dispose()
+    {
+        foreach (var project in projects.Values) project.Refreshing.Dispose();
+    }
 
-    private bool NeedsFetch(bool force) =>
-        force ? time.GetUtcNow() - lastForced >= MinRefresh : time.GetUtcNow() >= keysUntil;
+    /// <summary>The unverified "iss" claim, only to pick the project whose keys check it.</summary>
+    private string? IssuerOf(string token)
+    {
+        try
+        {
+            return handler.ReadJsonWebToken(token).Issuer;
+        }
+        catch (Exception e) when (e is ArgumentException or SecurityTokenException)
+        {
+            return null;
+        }
+    }
 
-    private Task<TokenValidationResult> ValidateAsync(string token, IList<SecurityKey> signingKeys) =>
+    private bool NeedsFetch(ProjectKeys project, bool force) =>
+        force ? time.GetUtcNow() - project.LastForced >= MinRefresh : time.GetUtcNow() >= project.KeysUntil;
+
+    private Task<TokenValidationResult> ValidateAsync(string token, ProjectKeys project, IList<SecurityKey> signingKeys) =>
         handler.ValidateTokenAsync(token, new TokenValidationParameters
         {
             IssuerSigningKeys = signingKeys,
-            ValidIssuer = AuthUrl.ToString(),
+            ValidIssuer = project.Issuer,
             ValidAudience = "authenticated",
             ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],
             LifetimeValidator = (notBefore, expires, _, _) => IsCurrent(notBefore, expires),
@@ -64,31 +97,45 @@ public sealed class SupabaseJwtValidator(IOptions<SupabaseOptions> options, Http
         return expires is { } e && now < e + ClockSkew && (notBefore is not { } nb || now >= nb - ClockSkew);
     }
 
-    private async Task<IList<SecurityKey>> KeysAsync(bool force, CancellationToken cancellationToken)
+    private async Task<IList<SecurityKey>> KeysAsync(ProjectKeys project, bool force, CancellationToken cancellationToken)
     {
-        if (!NeedsFetch(force)) return keys;
-        await refreshing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (!NeedsFetch(project, force)) return project.Keys;
+        await project.Refreshing.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!NeedsFetch(force)) return keys;
+            if (!NeedsFetch(project, force)) return project.Keys;
             var now = time.GetUtcNow();
-            if (force) lastForced = now;
+            if (force) project.LastForced = now;
             try
             {
-                var json = await http.GetStringAsync(new Uri($"{AuthUrl}/.well-known/jwks.json"), cancellationToken).ConfigureAwait(false);
-                keys = new JsonWebKeySet(json).GetSigningKeys();
-                keysUntil = now + KeysLifetime;
+                var json = await http.GetStringAsync(new Uri($"{project.Issuer}/.well-known/jwks.json"), cancellationToken).ConfigureAwait(false);
+                project.Keys = new JsonWebKeySet(json).GetSigningKeys();
+                project.KeysUntil = now + KeysLifetime;
             }
             catch (Exception e) when (e is HttpRequestException or ArgumentException || (e is TaskCanceledException && !cancellationToken.IsCancellationRequested))
             {
                 // Supabase not answering: keep the keys we have and try again in a minute.
-                keysUntil = now + MinRefresh;
+                project.KeysUntil = now + MinRefresh;
             }
-            return keys;
+            return project.Keys;
         }
         finally
         {
-            refreshing.Release();
+            project.Refreshing.Release();
         }
+    }
+
+    /// <summary>The cached public keys of one project, refreshed on their own.</summary>
+    private sealed class ProjectKeys(Uri authUrl)
+    {
+        public string Issuer { get; } = authUrl.ToString();
+
+        public SemaphoreSlim Refreshing { get; } = new(1, 1);
+
+        public IList<SecurityKey> Keys { get; set; } = [];
+
+        public DateTimeOffset KeysUntil { get; set; } = DateTimeOffset.MinValue;
+
+        public DateTimeOffset LastForced { get; set; } = DateTimeOffset.MinValue;
     }
 }

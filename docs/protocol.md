@@ -11,7 +11,7 @@ All examples below are real answers of the production server (27/10/2026; the PO
 
 ## Authentication
 
-Only HamQSO users: every request carries the user's **Supabase access token** (the `access_token` of the Supabase session, anonymous users included).
+Only users of the HamQSO apps: every request carries the user's **Supabase access token** (the `access_token` of the Supabase session, anonymous users included). Tokens of the HamQSO project and of the reader projects (`Supabase:ReaderUrls`: HamQRG) are accepted, each checked with the keys of its own project.
 
 | Channel | Where the token goes |
 |---|---|
@@ -149,7 +149,7 @@ A starting list (`?program=dx&limit=2`) gives `{"seq": 7941, "full": true, "spot
 
 | Status | When | Body |
 |---|---|---|
-| `401` | No `Authorization: Bearer`, or the token is not a valid Supabase token of HamQSO (expired, forged, other project) | empty |
+| `401` | No `Authorization: Bearer`, or the token is not a valid Supabase token of HamQSO or of a reader project (expired, forged, other project) | empty |
 | `400` | A parameter is wrong | `{"error": "unknown band '11m'"}` (says which one) |
 
 ## MQTT: the news

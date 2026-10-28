@@ -15,6 +15,7 @@ var app = builder.Build();
 app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = WriteHealth });
 app.MapMqttAuth(ports.InternalPort);
 app.MapSpotsApi();
+app.MapSendSpotApi();
 await app.RunAsync();
 
 static Task WriteHealth(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)

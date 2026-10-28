@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
+using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Infrastructure.Alerts;
 using HamQso.Spots.Infrastructure.Auth;
 using Microsoft.Extensions.Options;
@@ -51,7 +52,7 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         readerKey.Dispose();
     }
 
-    private Task<bool> Check(string token) => validator.IsValidAsync(token, TestContext.Current.CancellationToken);
+    private async Task<bool> Check(string token) => await validator.ValidateAsync(token, TestContext.Current.CancellationToken) is not null;
 
     [Fact]
     public async Task A_token_of_a_logged_in_HamQSO_user_is_accepted() =>
@@ -138,6 +139,18 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         time.Advance(TimeSpan.FromMinutes(1));
         Assert.False(await Check(Token(otherKey, "forged-late")));
         Assert.Equal(3, jwks.Requests);
+    }
+
+    [Fact]
+    public async Task A_valid_token_tells_the_user_id_and_whether_it_comes_from_a_reader_project()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var hamqso = await validator.ValidateAsync(Token(projectKey, "key-1"), ct);
+        var reader = await validator.ValidateAsync(Token(readerKey, "reader-1", issuer: ReaderIssuer), ct);
+
+        Assert.Equal(new TokenUser("8f2c-user-id", false), hamqso);
+        Assert.Equal(new TokenUser("8f2c-user-id", true), reader);
     }
 
     [Fact]

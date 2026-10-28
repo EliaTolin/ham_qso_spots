@@ -14,14 +14,14 @@ public class TelnetSessionTests
 
         for (var i = 0; i < 1000; i++) session.OnText(chunk, "DXFun", Now);
 
-        Assert.InRange(session.PendingLength, 0, TelnetSession.MaxPendingChars);
+        Assert.InRange(session.PendingLength, 0, LineBuffer.MaxPendingChars);
     }
 
     [Fact]
     public void Spots_still_arrive_after_an_overlong_line()
     {
         var session = new TelnetSession(new TelnetOptions(), Now);
-        session.OnText(new string('x', TelnetSession.MaxPendingChars * 2), "DXFun", Now);
+        session.OnText(new string('x', LineBuffer.MaxPendingChars * 2), "DXFun", Now);
 
         var (spots, _) = session.OnText("\r\nDX de IK2ABC:     7074.0  F4LHL  ft8  1159Z\r\n", "DXFun", Now);
 

@@ -11,7 +11,7 @@ Before this server every HamQSO phone opened its own telnet connection to a DX c
 DX cluster nodes ──────►│ server (.NET 11)                                                                    │
 HamQTH, DX Summit ─────►│   sources → IngestSpots → Postgres (dx_spots, 7 days)                               │
 POTA, SOTA, WWFF ──────►│                        └→ Mosquitto (MQTT news) ◄── mosquitto-go-auth ── /mqtt/*    │
-                        │   GET /v1/spots (lists)  GET /health                                                │
+                        │   GET /v1/spots (lists)  POST /v1/dx/spots (send, telnet as the user)  GET /health  │
                         └──────────┬──────────────────────────────┬───────────────────────────────────────────┘
                                    │ alert_spots (secret key)     │ wss://spot.hamqso.app/mqtt, https://spot.hamqso.app/v1/spots
                                    ▼                              ▼
@@ -21,7 +21,7 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 
 | Container | Image | Role |
 |---|---|---|
-| `server` | this repo (`Dockerfile`) | sources, ingestion, archive, publishing, REST API, broker auth backend, health |
+| `server` | this repo (`Dockerfile`) | sources, ingestion, archive, publishing, REST API, spot sending for the web app, broker auth backend, health |
 | `postgres` | `postgres:17-alpine` | the archive (`dx_spots`), 7 days, volume `postgres-data` |
 | `mosquitto` | `deploy/mosquitto/Dockerfile` (`iegomez/mosquitto-go-auth` + config) | MQTT broker for the apps; no persistence |
 
@@ -29,10 +29,10 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 
 | Project | Contains | Depends on |
 |---|---|---|
-| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, duplicate rule, enrichment, topics. Pure functions only | nothing |
-| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`), use cases (`IngestSpots`, `GetSpots`), in-memory dedup, broker access rules, health registry | Domain |
-| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator | Application |
-| `HamQso.Spots.Host` | Composition root, background workers, endpoints (`/health`, `/v1/spots`, `/mqtt/*`) | Application, Infrastructure |
+| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, duplicate rule, enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
+| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`), use cases (`IngestSpots`, `GetSpots`, `SendDxSpot`), in-memory dedup, spot rate limit, broker access rules, health registry | Domain |
+| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`) | Application |
+| `HamQso.Spots.Host` | Composition root, background workers, endpoints (`/health`, `/v1/spots`, `/v1/dx/spots`, `/mqtt/*`) | Application, Infrastructure |
 
 ## Sources
 
@@ -92,12 +92,24 @@ The full contract for clients is in [protocol.md](protocol.md).
 
 `SupabaseAlertNotifier` (official C# client `Supabase.Functions`) posts new spots to the edge function `alert_spots` of `ham_qso_supabase`, with the project secret key. The function (`@supabase/server`, `auth: 'secret:*'`) runs the same pipeline as the old `match_alerts` cron: US states (DX by FCC licence, POTA from the park location, SOTA from the summit), `match_alert_spots` (matching, anti-spam, history), FCM pushes, anonymous statistics. The cron `match-alerts` is disabled since 27/10/2026 and can be turned back on as a fallback ([operations.md](operations.md)).
 
+## Sending spots for the web app
+
+A browser cannot open telnet, so the web app sends its DX spots through the server (`POST /v1/dx/spots`, contract in [protocol.md](protocol.md)); the phones keep their own telnet. `SendDxSpot`:
+
+1. checks the line (`DxSpotLine`: one `DX <kHz.d> <call> <text>` line, nothing else) and the SSID (1–99);
+2. counts the attempt (`SpotRateLimiter`: 3 a minute, 20 an hour per user, in memory: a restart forgets the counts);
+3. reads the callsign of the user's profile (`SupabaseProfileReader`: PostgREST `profiles?id=eq.<sub>&select=callsign` with the secret key, since profiles are private);
+4. sends it as `<CALLSIGN>-<ssid>` (`TelnetClusterSender`), logging user, login, line and outcome.
+
+`TelnetClusterSender` mirrors the app's `OnDemandTelnetSender`: one session per login (`ClusterSendSession`, login dialogue in `ClusterSendDialogue`: the prompt or a 4 s fallback, an empty password if asked, ready after 2 s of silence), reused by the next spots of that login, closed 3 minutes after the last one; spots of one login go one at a time. The node's lines in the 2 s after the command are returned, spots excluded. The confirmation is the echo in the spot list, as on the phone. Node and timings are configuration (`DxSend`), default DXFun as the app.
+
 ## Access control
 
 - **Apps** connect to Mosquitto with the Supabase access token as password. `mosquitto-go-auth` (HTTP backend) asks the server: `POST /mqtt/user` (who may connect), `/mqtt/acl` (who may read or write a topic), `/mqtt/superuser` (always no).
 - **Rules** (`MqttAccess`): a valid Supabase token may read and subscribe `spots/…`; only the `ingestor` account (password from configuration, compared in constant time) may write; nobody may use other topics; the name `ingestor` never logs in with a token.
+- **Sending spots**: only tokens of the HamQSO project (`TokenUser.IsReader` false); the login is always the profile's callsign, never one from the request.
 - **Tokens** (`SupabaseJwtValidator`): ES256 signature checked with the public keys (JWKS) of the project that issued the token, issuer `https://<project>.supabase.co/auth/v1`, audience `authenticated`, expiry. Accepted projects: HamQSO (`Supabase:Url`) and the readers (`Supabase:ReaderUrls`, today HamQRG `dhmzkhipxvxtbbchvquc`), which may only read like HamQSO users; the alerts stay on HamQSO. A token of any other issuer is refused before any request, so keys are fetched only from the configured projects. Keys cached 10 minutes per project; an unknown key id forces a refresh at most once a minute per project; if Supabase does not answer, the cached keys are kept (tokens signed with them are still accepted, others are refused).
-- **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
+- **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`, `/v1/dx/spots`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
 - `/health` is public and shows only the state of each entry, never error messages (those go to the log).
 
 ## Health
@@ -116,3 +128,4 @@ The full contract for clients is in [protocol.md](protocol.md).
 | No compression | Decided for simplicity |
 | Alerts stay in Supabase (`alert_spots`) | Matching, pushes, US states and statistics in one place for the cron, the server and the self-spots |
 | .NET 11 | Chosen to try .NET; RC "go-live" in October 2026, final in November 2026 |
+| Web spots through the server, with the profile's callsign | F58 decisions 5 and 13: a browser has no telnet; nobody spots with someone else's callsign; few spots per user; every send logged |

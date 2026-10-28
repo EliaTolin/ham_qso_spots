@@ -19,9 +19,19 @@ public sealed class TestHost : WebApplicationFactory<Program>
 {
     public const string ValidToken = "valid.supabase.token";
 
+    /// <summary>A valid token of a reader project (HamQRG).</summary>
+    public const string ReaderToken = "valid.reader.token";
+
+    /// <summary>The user of <see cref="ValidToken"/>.</summary>
+    public const string UserId = "4b1e2a9c-0d3f-4e5a-8b6c-7d8e9f0a1b2c";
+
     public const string PortHeader = "X-Test-Local-Port";
 
     public FakeReader Reader { get; } = new();
+
+    public FakeProfiles Profiles { get; } = new();
+
+    public FakeCluster Cluster { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -35,6 +45,8 @@ public sealed class TestHost : WebApplicationFactory<Program>
             s.RemoveAll<IHostedService>();
             s.AddSingleton<ISpotReader>(Reader);
             s.AddSingleton<ITokenValidator>(new FakeTokens());
+            s.AddSingleton<IProfileReader>(Profiles);
+            s.AddSingleton<IClusterSender>(Cluster);
             s.AddSingleton<IStartupFilter, LocalPortFilter>();
         });
     }
@@ -49,7 +61,34 @@ public sealed class TestHost : WebApplicationFactory<Program>
 
     private sealed class FakeTokens : ITokenValidator
     {
-        public Task<bool> IsValidAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token == ValidToken);
+        public Task<TokenUser?> ValidateAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token switch
+        {
+            ValidToken => new TokenUser(UserId, false),
+            ReaderToken => new TokenUser(UserId, true),
+            _ => null,
+        });
+    }
+
+    public sealed class FakeProfiles : IProfileReader
+    {
+        public Dictionary<string, string?> Callsigns { get; } = new() { [UserId] = "IU4VRB" };
+
+        public Task<string?> CallsignAsync(string userId, CancellationToken cancellationToken) =>
+            Task.FromResult(Callsigns.GetValueOrDefault(userId));
+    }
+
+    public sealed class FakeCluster : IClusterSender
+    {
+        public List<(string Login, string Line)> Sent { get; } = [];
+
+        public bool Unavailable { get; set; }
+
+        public Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken)
+        {
+            if (Unavailable) return Task.FromResult(ClusterSendResult.Unavailable);
+            Sent.Add((login, line));
+            return Task.FromResult(new ClusterSendResult(true, ["Spot sent"]));
+        }
     }
 
     private sealed class LocalPortFilter : IStartupFilter

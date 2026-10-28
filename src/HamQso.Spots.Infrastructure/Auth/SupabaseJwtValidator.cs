@@ -40,24 +40,23 @@ public sealed class SupabaseJwtValidator : ITokenValidator, IDisposable
     {
         this.http = http;
         this.time = time;
-        projects = new[] { options.Value.Url }
-            .Concat(options.Value.ReaderUrls)
-            .Select(url => new ProjectKeys(new Uri(url, "auth/v1")))
+        projects = new[] { new ProjectKeys(new Uri(options.Value.Url, "auth/v1"), false) }
+            .Concat(options.Value.ReaderUrls.Select(url => new ProjectKeys(new Uri(url, "auth/v1"), true)))
             .DistinctBy(p => p.Issuer)
             .ToDictionary(p => p.Issuer);
     }
 
-    public async Task<bool> IsValidAsync(string token, CancellationToken cancellationToken)
+    public async Task<TokenUser?> ValidateAsync(string token, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(token) || !handler.CanReadToken(token)) return false;
-        if (!projects.TryGetValue(IssuerOf(token) ?? "", out var project)) return false;
+        if (string.IsNullOrWhiteSpace(token) || !handler.CanReadToken(token)) return null;
+        if (!projects.TryGetValue(IssuerOf(token) ?? "", out var project)) return null;
         var result = await ValidateAsync(token, project, await KeysAsync(project, false, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
         // A new signing key (rotation): fetch the set again once.
         if (!result.IsValid && result.Exception is SecurityTokenSignatureKeyNotFoundException)
         {
             result = await ValidateAsync(token, project, await KeysAsync(project, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
         }
-        return result.IsValid;
+        return result.IsValid ? new TokenUser(((JsonWebToken)result.SecurityToken).Subject ?? "", project.IsReader) : null;
     }
 
     public void Dispose()
@@ -126,9 +125,12 @@ public sealed class SupabaseJwtValidator : ITokenValidator, IDisposable
     }
 
     /// <summary>The cached public keys of one project, refreshed on their own.</summary>
-    private sealed class ProjectKeys(Uri authUrl)
+    private sealed class ProjectKeys(Uri authUrl, bool isReader)
     {
         public string Issuer { get; } = authUrl.ToString();
+
+        /// <summary>A reader project (HamQRG): its users only read.</summary>
+        public bool IsReader { get; } = isReader;
 
         public SemaphoreSlim Refreshing { get; } = new(1, 1);
 

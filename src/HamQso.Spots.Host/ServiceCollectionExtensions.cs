@@ -3,11 +3,14 @@ using HamQso.Spots.Application.Dedup;
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
 using HamQso.Spots.Application.Reading;
+using HamQso.Spots.Application.Sending;
 using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Infrastructure.Alerts;
 using HamQso.Spots.Infrastructure.Auth;
 using HamQso.Spots.Infrastructure.Mqtt;
 using HamQso.Spots.Infrastructure.Postgres;
+using HamQso.Spots.Infrastructure.Profiles;
+using HamQso.Spots.Infrastructure.Sending;
 using HamQso.Spots.Infrastructure.Sources;
 using HamQso.Spots.Infrastructure.Sources.Telnet;
 using Microsoft.Extensions.Options;
@@ -26,6 +29,7 @@ public static class ServiceCollectionExtensions
         services.AddOptions<TelnetOptions>().BindConfiguration(TelnetOptions.Section).ValidateDataAnnotations().ValidateOnStart();
         services.AddOptions<MqttOptions>().BindConfiguration(MqttOptions.Section).ValidateDataAnnotations().ValidateOnStart();
         services.AddOptions<SupabaseOptions>().BindConfiguration(SupabaseOptions.Section).ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<DxSendOptions>().BindConfiguration(DxSendOptions.Section).ValidateDataAnnotations().ValidateOnStart();
 
         services.AddSingleton(NpgsqlDataSource.Create(configuration.GetConnectionString("Spots")
             ?? throw new InvalidOperationException("ConnectionStrings:Spots is missing")));
@@ -41,6 +45,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISpotDeduplicator, InMemorySpotDeduplicator>();
         services.AddSingleton<IngestSpots>();
         services.AddSingleton<SourceHealthRegistry>();
+
+        services.AddHttpClient<IProfileReader, SupabaseProfileReader>();
+        services.AddSingleton<IClusterSender, TelnetClusterSender>();
+        services.AddSingleton<SpotRateLimiter>();
+        services.AddSingleton<SendDxSpot>();
 
         services.AddSingleton(sp =>
         {

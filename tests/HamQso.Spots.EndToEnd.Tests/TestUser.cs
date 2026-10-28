@@ -52,6 +52,15 @@ public sealed class TestUser : IAsyncDisposable
         return rows.RootElement[0].GetProperty("id").GetString()!;
     }
 
+    /// <summary>The callsign of the user's profile, as the app saves it (null: none).</summary>
+    public async Task SetCallsignAsync(string? callsign, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "rest/v1/profiles") { Content = Json(new { id = Id, callsign }) };
+        request.Headers.Add("Prefer", "resolution=merge-duplicates");
+        using var response = await admin.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<JsonElement[]> AlertEventsAsync(CancellationToken ct)
     {
         var body = await admin.GetStringAsync($"rest/v1/alert_events?user_id=eq.{Id}&select=alert_id,source,spot_key,callsign,band,push_sent_at", ct);

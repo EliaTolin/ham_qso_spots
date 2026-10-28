@@ -44,6 +44,7 @@ Every spot, in REST answers and MQTT messages, is a JSON object with these field
 | `altitude_m` | integer | no | Altitude of the summit in metres (SOTA) |
 | `points` | integer | no | Activation points of the summit (SOTA) |
 | `spot_count` | integer | yes | How many times the activation was spotted on this band (xOTA, counted by the server); `1` for DX |
+| `qrt` | boolean | yes | The activator went QRT (SOTA `QRT` spot, B29): the apps end the whole activation, on every band. A QRT without a frequency has `frequency_khz` `0` and no `band` |
 | `lotw`, `eqsl` | boolean | no | The station confirms on LoTW / eQSL (from HamQTH; missing when no source tells) |
 | `location` | string | no | POTA location of the park (`US-SC`) |
 | `dxcc` | integer | no | ADIF DXCC entity of the station |

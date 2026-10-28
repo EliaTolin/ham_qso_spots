@@ -51,3 +51,6 @@ alter table dx_spots add column if not exists points integer;
 alter table dx_spots add column if not exists spot_count integer not null default 1;
 alter table dx_spots add column if not exists lotw boolean;
 alter table dx_spots add column if not exists eqsl boolean;
+
+-- QRT (B29, 28/10/2026): the activator went QRT (SOTA "QRT" spot); the apps close the activation.
+alter table dx_spots add column if not exists qrt boolean not null default false;

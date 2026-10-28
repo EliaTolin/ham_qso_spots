@@ -60,6 +60,8 @@ internal sealed record SpotRow
 
     public string? SpotterLocator { get; init; }
 
+    public bool Qrt { get; init; }
+
     public static SpotRow From(Spot s) => new()
     {
         Program = SpotJson.Name(s.Program),
@@ -88,6 +90,7 @@ internal sealed record SpotRow
         Longitude = s.Longitude,
         Comment = s.Comment,
         SpotterLocator = s.SpotterLocator,
+        Qrt = s.Qrt,
     };
 
     public Spot ToSpot() => new()
@@ -119,5 +122,6 @@ internal sealed record SpotRow
         Longitude = Longitude,
         Comment = Comment,
         SpotterLocator = SpotterLocator,
+        Qrt = Qrt,
     };
 }

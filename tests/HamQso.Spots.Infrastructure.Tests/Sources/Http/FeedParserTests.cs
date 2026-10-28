@@ -24,15 +24,36 @@ public class FeedParserTests
     }
 
     [Fact]
-    public void SOTA_converts_MHz_and_skips_QRT_test_and_malformed_spots()
+    public void SOTA_converts_MHz_keeps_QRT_and_skips_test_and_malformed_spots()
     {
         var spots = Parse(new SotaFeed(), "sota.json");
 
-        Assert.Equal(45, spots.Count);
+        Assert.Equal(50, spots.Count);
         Assert.DoesNotContain(spots, s => s.Callsign == "G0TST/P" || s.Callsign == "G0ABC/P");
+        var qrt = spots.Where(s => s.Qrt).ToArray();
+        Assert.Equal(["EA3HP/P", "EA4DON/P", "DF5WC", "OE6HMM/P", "HB9DGW/P"], qrt.Select(s => s.Callsign));
+        Assert.Equal([0, 0, 14058.5, 145525, 0], qrt.Select(s => s.FrequencyKhz));
         var first = spots[0];
         Assert.Equal(("HB9CBR/P", 24904.0, "HB/SO-023"), (first.Callsign, first.FrequencyKhz, first.Reference));
         Assert.Equal(("Punkt 1239 bei Zentner", "Bruno", 1239, 2), (first.ReferenceName, first.ActivatorName, first.AltitudeM, first.Points));
+    }
+
+    [Fact]
+    public void B29_KN4OK_manda_QRT_alle_2017_e_lo_spot_QRT_arriva_segnato_QRT()
+    {
+        const string body = """
+            [
+              {"id": 2, "timeStamp": "2026-10-28T20:17:00Z", "activatorCallsign": "KN4OK", "callsign": "KN4OK", "comments": "thanks all",
+               "frequency": 7.218, "mode": "SSB", "summitCode": "W4C/WM-001", "type": "QRT"},
+              {"id": 1, "timeStamp": "2026-10-28T20:11:00Z", "activatorCallsign": "KN4OK", "callsign": "KN4OK", "comments": "",
+               "frequency": 7.218, "mode": "SSB", "summitCode": "W4C/WM-001", "type": "NORMAL"}
+            ]
+            """;
+
+        var spots = new SotaFeed().Parse(body, Now);
+
+        Assert.Equal([true, false], spots.Select(s => s.Qrt));
+        Assert.Equal(("KN4OK", 7218.0, "W4C/WM-001"), (spots[0].Callsign, spots[0].FrequencyKhz, spots[0].Reference));
     }
 
     [Fact]

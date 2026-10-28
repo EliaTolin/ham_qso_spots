@@ -20,19 +20,19 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
     private const string Columns =
         "program, spot_key, callsign, frequency_khz, spot_time, feeds, spotters, band, mode, mode_source, mode_category, " +
         "reference, location, dxcc, continent, latitude, longitude, comment, spotter_locator, " +
-        "reference_name, activator_name, altitude_m, points, lotw, eqsl";
+        "reference_name, activator_name, altitude_m, points, lotw, eqsl, qrt";
 
     private const string Upsert =
         $"insert into dx_spots ({Columns}) values (@Program, @SpotKey, @Callsign, @FrequencyKhz, @SpotTime, @Feeds, @Spotters, " +
         "@Band, @Mode, @ModeSource, @ModeCategory, @Reference, @Location, @Dxcc, @Continent, @Latitude, @Longitude, @Comment, @SpotterLocator, " +
-        "@ReferenceName, @ActivatorName, @AltitudeM, @Points, @Lotw, @Eqsl) " +
+        "@ReferenceName, @ActivatorName, @AltitudeM, @Points, @Lotw, @Eqsl, @Qrt) " +
         "on conflict (program, spot_key) do update set callsign = excluded.callsign, frequency_khz = excluded.frequency_khz, " +
         "spot_time = excluded.spot_time, feeds = excluded.feeds, spotters = excluded.spotters, band = excluded.band, " +
         "mode = excluded.mode, mode_source = excluded.mode_source, mode_category = excluded.mode_category, " +
         "reference = excluded.reference, location = excluded.location, dxcc = excluded.dxcc, continent = excluded.continent, " +
         "latitude = excluded.latitude, longitude = excluded.longitude, comment = excluded.comment, spotter_locator = excluded.spotter_locator, " +
         "reference_name = excluded.reference_name, activator_name = excluded.activator_name, altitude_m = excluded.altitude_m, " +
-        "points = excluded.points, lotw = excluded.lotw, eqsl = excluded.eqsl, " +
+        "points = excluded.points, lotw = excluded.lotw, eqsl = excluded.eqsl, qrt = excluded.qrt, " +
         // A newer spot of the same row is one more spot of the activation (xOTA; a DX key has the time in it).
         "spot_count = dx_spots.spot_count + (case when excluded.spot_time > dx_spots.spot_time then 1 else 0 end), " +
         "seq = nextval('dx_spots_seq_counter') " +
@@ -43,19 +43,19 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
         "excluded.callsign, excluded.frequency_khz, excluded.feeds, excluded.spotters, excluded.band, excluded.mode, " +
         "excluded.mode_source, excluded.mode_category, excluded.reference, excluded.location, excluded.dxcc, " +
         "excluded.continent, excluded.latitude, excluded.longitude, excluded.comment, excluded.spotter_locator, " +
-        "excluded.reference_name, excluded.activator_name, excluded.altitude_m, excluded.points, excluded.lotw, excluded.eqsl" +
+        "excluded.reference_name, excluded.activator_name, excluded.altitude_m, excluded.points, excluded.lotw, excluded.eqsl, excluded.qrt" +
         ") is distinct from (" +
         "dx_spots.callsign, dx_spots.frequency_khz, dx_spots.feeds, dx_spots.spotters, dx_spots.band, dx_spots.mode, " +
         "dx_spots.mode_source, dx_spots.mode_category, dx_spots.reference, dx_spots.location, dx_spots.dxcc, " +
         "dx_spots.continent, dx_spots.latitude, dx_spots.longitude, dx_spots.comment, dx_spots.spotter_locator, " +
-        "dx_spots.reference_name, dx_spots.activator_name, dx_spots.altitude_m, dx_spots.points, dx_spots.lotw, dx_spots.eqsl)) " +
+        "dx_spots.reference_name, dx_spots.activator_name, dx_spots.altitude_m, dx_spots.points, dx_spots.lotw, dx_spots.eqsl, dx_spots.qrt)) " +
         "returning seq, spot_count as SpotCount";
 
     private const string Select =
         "select program, seq, spot_key as SpotKey, callsign, frequency_khz as FrequencyKhz, spot_time as SpotTime, feeds, spotters, band, mode, " +
         "mode_source as ModeSource, mode_category as ModeCategory, reference, location, dxcc, continent, latitude, longitude, comment, " +
         "spotter_locator as SpotterLocator, reference_name as ReferenceName, activator_name as ActivatorName, altitude_m as AltitudeM, " +
-        "points, spot_count as SpotCount, lotw, eqsl from dx_spots";
+        "points, spot_count as SpotCount, lotw, eqsl, qrt from dx_spots";
 
     /// <summary>Program, bands and modes of a <see cref="SpotFilter"/>; "other" is a null band or mode.</summary>
     private const string Where =

@@ -76,6 +76,9 @@ public sealed record Spot
     /// <summary>Location of the reference as the program gives it (POTA "US-MI"): the US state of an alert.</summary>
     public string? Location { get; init; }
 
+    /// <summary>The activator went QRT: the source says so (SOTA "QRT" spot). The apps close the whole activation (B29).</summary>
+    public bool Qrt { get; init; }
+
     /// <summary>Locator of the spotter, sent by some telnet nodes.</summary>
     public string? SpotterLocator { get; init; }
 }

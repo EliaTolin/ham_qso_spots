@@ -19,7 +19,7 @@ public sealed partial class IngestSpots(
     TimeProvider time,
     ILogger<IngestSpots> logger) : IDisposable
 {
-    /// <summary>Older spots (a telnet backlog after a reconnect) never trigger an alert.</summary>
+    /// <summary>Older spots (a telnet backlog after a reconnect) and QRT spots (B29) never trigger an alert.</summary>
     public static readonly TimeSpan AlertFreshness = TimeSpan.FromMinutes(15);
 
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -64,7 +64,7 @@ public sealed partial class IngestSpots(
             var fresh = results.Where(r => r.Outcome == DedupOutcome.New).Select(r => r.Spot).ToArray();
 
             var publishing = changed.Length > 0 ? SaveAndPublishAsync(changed, cancellationToken) : Task.CompletedTask;
-            var alertable = fresh.Where(s => time.GetUtcNow() - s.SpotTime <= AlertFreshness).ToArray();
+            var alertable = fresh.Where(s => !s.Qrt && time.GetUtcNow() - s.SpotTime <= AlertFreshness).ToArray();
             var alerting = alertable.Length > 0 ? RunAsync("alerts", () => alerts.NotifyAsync(alertable, cancellationToken)) : Task.CompletedTask;
 
             await Task.WhenAll(publishing, alerting).ConfigureAwait(false);

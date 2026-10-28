@@ -44,7 +44,7 @@ Every source implements `ISpotSource` and does not know the others; the Host sta
 | HamQTH | `https://www.hamqth.com/api/v2/spots?limit=200` (HamQTH asks for at most one request every 15 s) | 15 s |
 | DX Summit | `https://www.dxsummit.fi/api/v1/spots?limit=100` | 30 s |
 | POTA | `https://api.pota.app/spot/activator` | 30 s |
-| SOTA | `https://api-db2.sota.org.uk/api/spots/epoch` every interval; the list `https://api-db2.sota.org.uk/api/spots/50/all/all` only when the epoch differs from the one of the last list read (SOTA's rule). `QRT` and `TEST` spots dropped | 1 min (the minimum: a shorter interval stops the server at start) |
+| SOTA | `https://api-db2.sota.org.uk/api/spots/epoch` every interval; the list `https://api-db2.sota.org.uk/api/spots/50/all/all` only when the epoch differs from the one of the last list read (SOTA's rule). `TEST` spots dropped; a `QRT` spot is kept with `qrt: true` (at 0 kHz when it has no frequency, as SOTAwatch often sends it) and never alerted (B29) | 1 min (the minimum: a shorter interval stops the server at start) |
 | WWFF | `https://spots.wwff.co/static/spots.json`; spots with `QRT` in the remarks dropped | 1 min |
 
 Every HTTP request carries the User-Agent `HamQSO/1.0 (IU4VRB; +https://hamqso.app)` (SOTA asks for the app name and a callsign). A feed with an epoch (`IPolledFeed.EpochUrl`, today only SOTA) reports ok when the epoch is unchanged and sends no batch; when the epoch does not answer the list is not asked and the feed reports failing.

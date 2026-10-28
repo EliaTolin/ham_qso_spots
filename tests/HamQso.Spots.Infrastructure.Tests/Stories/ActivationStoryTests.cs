@@ -169,6 +169,62 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task B29_KN4OK_manda_QRT_alle_2017_e_dalle_2017_la_sua_riga_delle_2011_e_QRT_senza_avvisi()
+    {
+        // Screenshot di SOTAwatch del 28/10/2026: KN4OK spottato su 7.218 SSB alle 20:11, QRT alle 20:17.
+        var at2011 = new DateTimeOffset(2026, 10, 28, 20, 11, 0, TimeSpan.Zero);
+        Spot Kn4ok(string id, DateTimeOffset at, bool qrt) => new()
+        {
+            Program = SpotProgram.Sota,
+            SpotKey = id,
+            Callsign = "KN4OK",
+            FrequencyKhz = 7218,
+            SpotTime = at,
+            Feeds = ["SOTA"],
+            Mode = "SSB",
+            Reference = "W4C/WM-001",
+            Qrt = qrt,
+        };
+        var normal = Kn4ok("1", at2011, qrt: false);
+        var qrt = Kn4ok("2", at2011.AddMinutes(6), qrt: true);
+
+        time.SetUtcNow(at2011.AddSeconds(30));
+        await server.HandleAsync(new SpotBatch("SOTA", [normal]), TestContext.Current.CancellationToken);
+        time.SetUtcNow(at2011.AddMinutes(6).AddSeconds(30));
+        broker.Clear();
+        alerts.Clear();
+        await server.HandleAsync(new SpotBatch("SOTA", [qrt, normal]), TestContext.Current.CancellationToken);
+
+        var update = Assert.Single(broker.Sent("spots/sota"));
+        Assert.Equal(("KN4OK_W4C/WM-001_40m", true), (update.SpotKey, update.Qrt));
+        Assert.Empty(alerts.Sent);
+        var row = Assert.Single((await new GetSpots(store).ExecuteAsync(new SpotFilter(SpotProgram.Sota, [], []), null, null, TestContext.Current.CancellationToken)).Spots);
+        Assert.Equal((at2011.AddMinutes(6), true), (row.SpotTime, row.Qrt));
+    }
+
+    [Fact]
+    public async Task B29_un_QRT_arrivato_per_primo_non_manda_avvisi()
+    {
+        time.SetUtcNow(new DateTimeOffset(2026, 10, 28, 21, 2, 30, TimeSpan.Zero));
+        await server.HandleAsync(new SpotBatch("SOTA", [new Spot
+        {
+            Program = SpotProgram.Sota,
+            SpotKey = "3",
+            Callsign = "KH2TJ",
+            FrequencyKhz = 10118,
+            SpotTime = new DateTimeOffset(2026, 10, 28, 21, 2, 0, TimeSpan.Zero),
+            Feeds = ["SOTA"],
+            Mode = "CW",
+            Reference = "W6/NS-138",
+            Comment = "qrt off to next peak",
+            Qrt = true,
+        }]), TestContext.Current.CancellationToken);
+
+        Assert.True(Assert.Single(broker.Sent("spots/sota")).Qrt);
+        Assert.Empty(alerts.Sent);
+    }
+
+    [Fact]
     public async Task A_DX_station_heard_by_three_sources_is_one_spot_that_grows_and_is_alerted_once()
     {
         Spot Dx(string feed, string spotter, int second) => new()

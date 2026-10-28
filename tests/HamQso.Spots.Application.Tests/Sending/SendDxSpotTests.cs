@@ -10,6 +10,8 @@ public class SendDxSpotTests
     private const string User = "4b1e2a9c-0d3f-4e5a-8b6c-7d8e9f0a1b2c";
     private const string Line = "DX 14025.0 K1ABC CQ CW";
 
+    private const string OtherUser = "9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f";
+
     private readonly FakeProfiles profiles = new();
     private readonly FakeCluster cluster = new();
     private readonly RecordingLogger logger = new();
@@ -17,7 +19,7 @@ public class SendDxSpotTests
 
     public SendDxSpotTests() => send = new SendDxSpot(profiles, cluster, new SpotRateLimiter(new FakeTimeProvider()), logger);
 
-    private Task<SendDxSpotResult> Send(string? line = Line, int? ssid = 7) => send.ExecuteAsync(User, line, ssid, TestContext.Current.CancellationToken);
+    private Task<SendDxSpotResult> Send(string? line = Line, int? ssid = 7, string user = User) => send.ExecuteAsync(user, line, ssid, TestContext.Current.CancellationToken);
 
     [Fact]
     public async Task The_spot_goes_out_logged_in_with_the_callsign_of_the_profile_and_the_SSID()
@@ -59,6 +61,40 @@ public class SendDxSpotTests
         Assert.Empty(cluster.Sent);
     }
 
+    [Theory]
+    [InlineData("IU4VRB\r\nSET/PASSWORD x")]
+    [InlineData("IU4VRB-7")]
+    [InlineData("TOOLONGCALL")]
+    [InlineData("IU4VRB\u00FF")]
+    public async Task A_profile_callsign_outside_the_profiles_pattern_is_no_callsign(string callsign)
+    {
+        profiles.Callsign = callsign;
+
+        Assert.Equal(SendDxSpotOutcome.NoCallsign, (await Send()).Outcome);
+        Assert.Empty(cluster.Sent);
+    }
+
+    [Fact]
+    public async Task Two_accounts_with_the_same_callsign_share_its_limit()
+    {
+        await Send();
+        await Send();
+        await Send(user: OtherUser);
+
+        var result = await Send(user: OtherUser);
+
+        Assert.Equal(SendDxSpotOutcome.RateLimited, result.Outcome);
+        Assert.Equal(3, cluster.Sent.Count);
+    }
+
+    [Fact]
+    public async Task Too_many_sessions_open_is_busy()
+    {
+        cluster.Failure = ClusterSendResult.Busy;
+
+        Assert.Equal(SendDxSpotOutcome.Busy, (await Send()).Outcome);
+    }
+
     [Fact]
     public async Task The_fourth_spot_in_a_minute_is_refused_before_the_profile_is_read()
     {
@@ -75,7 +111,7 @@ public class SendDxSpotTests
     [Fact]
     public async Task A_node_that_cannot_be_reached_is_node_unavailable()
     {
-        cluster.Unavailable = true;
+        cluster.Failure = ClusterSendResult.Unavailable;
 
         Assert.Equal(SendDxSpotOutcome.NodeUnavailable, (await Send()).Outcome);
     }
@@ -89,7 +125,7 @@ public class SendDxSpotTests
         public Task<string?> CallsignAsync(string userId, CancellationToken cancellationToken)
         {
             Reads++;
-            return Task.FromResult(userId == User ? Callsign : null);
+            return Task.FromResult(userId is User or OtherUser ? Callsign : null);
         }
     }
 
@@ -97,13 +133,13 @@ public class SendDxSpotTests
     {
         public List<(string Login, string Line)> Sent { get; } = [];
 
-        public bool Unavailable { get; set; }
+        public ClusterSendResult? Failure { get; set; }
 
         public Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken)
         {
-            if (Unavailable) return Task.FromResult(ClusterSendResult.Unavailable);
+            if (Failure is not null) return Task.FromResult(Failure);
             Sent.Add((login, line));
-            return Task.FromResult(new ClusterSendResult(true, ["Spot sent"]));
+            return Task.FromResult(ClusterSendResult.Sent(["Spot sent"]));
         }
     }
 

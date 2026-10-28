@@ -6,12 +6,24 @@ public interface IClusterSender
     Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken);
 }
 
-/// <summary>
-/// Sent: the node took the line; <see cref="Replies"/> are the lines it wrote
-/// back right after (spots excluded). Not sent: the node could not be reached
-/// or did not take the login in time.
-/// </summary>
-public sealed record ClusterSendResult(bool Sent, IReadOnlyList<string> Replies)
+public enum ClusterSendStatus
 {
-    public static ClusterSendResult Unavailable { get; } = new(false, []);
+    /// <summary>The node took the line.</summary>
+    Sent,
+
+    /// <summary>The node could not be reached or did not take the login in time.</summary>
+    Unavailable,
+
+    /// <summary>Too many sessions open: no new one is opened now.</summary>
+    Busy,
+}
+
+/// <summary>The outcome; when sent, <see cref="Replies"/> are the lines the node wrote back right after (spots excluded).</summary>
+public sealed record ClusterSendResult(ClusterSendStatus Status, IReadOnlyList<string> Replies)
+{
+    public static ClusterSendResult Unavailable { get; } = new(ClusterSendStatus.Unavailable, []);
+
+    public static ClusterSendResult Busy { get; } = new(ClusterSendStatus.Busy, []);
+
+    public static ClusterSendResult Sent(IReadOnlyList<string> replies) => new(ClusterSendStatus.Sent, replies);
 }

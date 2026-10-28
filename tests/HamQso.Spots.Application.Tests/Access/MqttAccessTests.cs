@@ -66,6 +66,6 @@ public class MqttAccessTests
     private sealed class FakeTokens : ITokenValidator
     {
         public Task<TokenUser?> ValidateAsync(string token, CancellationToken cancellationToken) =>
-            Task.FromResult(token == ValidToken ? new TokenUser("8f2c-user-id", false) : null);
+            Task.FromResult(token == ValidToken ? new TokenUser("8f2c-user-id", false, false) : null);
     }
 }

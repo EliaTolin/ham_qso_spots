@@ -45,6 +45,7 @@ public sealed class ClusterSendSession : IAsyncDisposable
     public static async Task<ClusterSendSession> OpenAsync(DxSendOptions options, string login, TimeProvider time, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ThrowIfNotOneLine(login);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(options.LoginTimeout);
         var tcp = new TcpClient { NoDelay = true };
@@ -143,8 +144,20 @@ public sealed class ClusterSendSession : IAsyncDisposable
         }
     }
 
-    private Task WriteLineAsync(string line, CancellationToken cancellationToken) =>
-        WriteAsync(Latin1.GetBytes(line + "\r\n"), cancellationToken);
+    private Task WriteLineAsync(string line, CancellationToken cancellationToken)
+    {
+        ThrowIfNotOneLine(line);
+        return WriteAsync(Latin1.GetBytes(line + "\r\n"), cancellationToken);
+    }
+
+    /// <summary>
+    /// The last guard before the socket: whatever the callers checked, a CR, LF or
+    /// any other control character (a second command, telnet bytes) never goes out.
+    /// </summary>
+    private static void ThrowIfNotOneLine(string line)
+    {
+        if (line.Any(c => char.IsControl(c) || c > '\x7E')) throw new ArgumentException("Only one line of printable ASCII goes to the node", nameof(line));
+    }
 
     private async Task WriteAsync(byte[] bytes, CancellationToken cancellationToken)
     {

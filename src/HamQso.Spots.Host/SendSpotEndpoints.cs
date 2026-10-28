@@ -9,8 +9,9 @@ namespace HamQso.Spots.Host;
 /// <summary>
 /// POST /v1/dx/spots: the web app (no telnet in a browser) sends a DX spot
 /// through the server, logged in with the callsign of the user's profile.
-/// Only HamQSO users: the Supabase access token as Bearer; users of the
-/// reader projects (HamQRG) may only read. Contract in docs/protocol.md.
+/// Only signed-in HamQSO users: the Supabase access token as Bearer; users of
+/// the reader projects (HamQRG) may only read, anonymous users need an account.
+/// Contract in docs/protocol.md.
 /// </summary>
 public static class SendSpotEndpoints
 {
@@ -25,6 +26,7 @@ public static class SendSpotEndpoints
             var user = await BearerAuth.UserAsync(http, tokens, ct);
             if (user is null || user.UserId.Length == 0) return Results.Unauthorized();
             if (user.IsReader) return Error(StatusCodes.Status403Forbidden, "not_allowed");
+            if (user.IsAnonymous) return Error(StatusCodes.Status403Forbidden, "account_required");
 
             var body = await ReadBodyAsync(http, ct);
             if (body is null) return Error(StatusCodes.Status400BadRequest, "invalid_line");
@@ -37,6 +39,7 @@ public static class SendSpotEndpoints
                 SendDxSpotOutcome.InvalidSsid => Error(StatusCodes.Status400BadRequest, "invalid_ssid"),
                 SendDxSpotOutcome.NoCallsign => Error(StatusCodes.Status422UnprocessableEntity, "no_callsign"),
                 SendDxSpotOutcome.RateLimited => RateLimited(http, result.RetryAfter ?? TimeSpan.Zero),
+                SendDxSpotOutcome.Busy => Error(StatusCodes.Status503ServiceUnavailable, "busy"),
                 _ => Error(StatusCodes.Status502BadGateway, "node_unavailable"),
             };
         });

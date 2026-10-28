@@ -12,7 +12,7 @@ using Microsoft.Extensions.Hosting;
 namespace HamQso.Spots.EndToEnd.Tests;
 
 /// <summary>
-/// POST /v1/dx/spots as the web app calls it: a real anonymous HamQSO user and
+/// POST /v1/dx/spots as the web app calls it: a real signed-in HamQSO user and
 /// its real profile in Supabase, the real token check, profile read, rate
 /// limit and telnet sender of the server, run here (the deployed server would
 /// spot on the real cluster) with the node set to a <see cref="FakeDxNode"/>
@@ -32,7 +32,7 @@ public sealed class SendSpotTests : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         server = new ServerWithFakeNode(node.Port);
-        user = await TestUser.CreateAsync(Ct);
+        user = await TestUser.CreateWithAccountAsync(Ct);
     }
 
     public async ValueTask DisposeAsync()
@@ -77,6 +77,19 @@ public sealed class SendSpotTests : IAsyncLifetime
         using var response = await Post(token);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(node.Connections);
+    }
+
+    [Fact]
+    public async Task An_anonymous_user_needs_an_account_and_the_node_sees_nothing()
+    {
+        await using var anonymous = await TestUser.CreateAsync(Ct);
+        await anonymous.SetCallsignAsync(Callsign, Ct);
+
+        using var response = await Post(anonymous.AccessToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("account_required", (await Body(response)).GetProperty("error").GetString());
         Assert.Empty(node.Connections);
     }
 

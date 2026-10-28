@@ -22,6 +22,9 @@ public sealed class TestHost : WebApplicationFactory<Program>
     /// <summary>A valid token of a reader project (HamQRG).</summary>
     public const string ReaderToken = "valid.reader.token";
 
+    /// <summary>A valid token of an anonymous HamQSO user (no signed-in account).</summary>
+    public const string AnonymousToken = "valid.anonymous.token";
+
     /// <summary>The user of <see cref="ValidToken"/>.</summary>
     public const string UserId = "4b1e2a9c-0d3f-4e5a-8b6c-7d8e9f0a1b2c";
 
@@ -63,8 +66,9 @@ public sealed class TestHost : WebApplicationFactory<Program>
     {
         public Task<TokenUser?> ValidateAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token switch
         {
-            ValidToken => new TokenUser(UserId, false),
-            ReaderToken => new TokenUser(UserId, true),
+            ValidToken => new TokenUser(UserId, false, false),
+            ReaderToken => new TokenUser(UserId, true, false),
+            AnonymousToken => new TokenUser(UserId, false, true),
             _ => null,
         });
     }
@@ -81,13 +85,14 @@ public sealed class TestHost : WebApplicationFactory<Program>
     {
         public List<(string Login, string Line)> Sent { get; } = [];
 
-        public bool Unavailable { get; set; }
+        /// <summary>What the node does instead of sending: Unavailable or Busy.</summary>
+        public ClusterSendResult? Failure { get; set; }
 
         public Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken)
         {
-            if (Unavailable) return Task.FromResult(ClusterSendResult.Unavailable);
+            if (Failure is not null) return Task.FromResult(Failure);
             Sent.Add((login, line));
-            return Task.FromResult(new ClusterSendResult(true, ["Spot sent"]));
+            return Task.FromResult(ClusterSendResult.Sent(["Spot sent"]));
         }
     }
 

@@ -56,8 +56,12 @@ public sealed class SupabaseJwtValidator : ITokenValidator, IDisposable
         {
             result = await ValidateAsync(token, project, await KeysAsync(project, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
         }
-        return result.IsValid ? new TokenUser(((JsonWebToken)result.SecurityToken).Subject ?? "", project.IsReader) : null;
+        return result.IsValid ? UserOf((JsonWebToken)result.SecurityToken, project) : null;
     }
+
+    /// <summary>"sub" and "is_anonymous" (Supabase anonymous sign-in) of a verified token.</summary>
+    private static TokenUser UserOf(JsonWebToken token, ProjectKeys project) =>
+        new(token.Subject ?? "", project.IsReader, token.TryGetPayloadValue<bool>("is_anonymous", out var anonymous) && anonymous);
 
     public void Dispose()
     {

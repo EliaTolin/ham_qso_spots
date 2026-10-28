@@ -30,7 +30,7 @@ Port `8081` of the server (`/mqtt/*`, broker auth) and `1883` of Mosquitto (the 
 | `Feeds:<name>` | `HamQTH`, `DXSummit`, `POTA`, `SOTA`, `WWFF`: `Enabled` (true), `Interval` (SOTA at least `00:01:00`: a shorter one stops the server at start) |
 | `Mqtt` | `Host`, `Port` (1883), `ClientId`, `Username` (`ingestor`), `Password` |
 | `Supabase` | `Url`, `SecretKey` (alerts, and reading the callsign of a profile for `/v1/dx/spots`), `AlertsFunction` (`alert_spots`), `ReaderUrls` (projects whose users may only read: HamQRG) |
-| `DxSend` | The node users spot on through the server: `Host` (`dxfun.com`), `Port` (8000), `LoginTimeout` (15 s), `LoginFallback` (4 s), `WelcomeSilence` (2 s), `ReplyWindow` (2 s), `IdleTimeout` (3 min) |
+| `DxSend` | The node users spot on through the server: `Host` (`dxfun.com`), `Port` (8000), `LoginTimeout` (15 s), `LoginFallback` (4 s), `WelcomeSilence` (2 s), `ReplyWindow` (2 s), `MaxSessions` (50; beyond it new logins get 503 `busy`), `IdleTimeout` (3 min) |
 
 Options are validated at startup: a missing required value stops the server with a clear error.
 
@@ -63,7 +63,7 @@ Uptime Kuma (Aurora), monitors of type **HTTP(s) - Keyword** on `https://spot.ha
 
 `/health` answers 200 also when Degraded, so a plain HTTP monitor would not see these. A monitor on `"status":"Healthy"` is not used: one telnet node reconnecting for a few minutes is normal and would page.
 
-Logs: Coolify → HamQSO_Spots → Logs (per container). Source failures are logged as warnings `Source <name> failing: <reason>`, failed steps as errors `Ingestion step <step> failed`. Every spot sent for a user is logged as `DX spot by user <id> as <login>: <line> -> <outcome>` (an invalid line is written as `<invalid, N chars>`); a node that cannot be reached also as a warning `DX node <host> unavailable for <login>`.
+Logs: Coolify → HamQSO_Spots → Logs (per container). Source failures are logged as warnings `Source <name> failing: <reason>`, failed steps as errors `Ingestion step <step> failed`. Every spot sent for a user is logged as `DX spot by user <id> as <login>: <line> -> <outcome>` (an invalid line is written as `<invalid, N chars>`); a node that cannot be reached also as a warning `DX node <host> unavailable for <login>`, a refused new session as `DX sending busy: <max> sessions open, <login> refused` (if it shows often, raise `DxSend__MaxSessions`).
 
 ## When an alarm fires
 
@@ -102,7 +102,7 @@ After any fix: redeploy if needed, check `/health`, run the end-to-end tests ([d
 
 ## Known gaps
 
-- No rate limit on `/v1/spots` (sending spots has one: 3 a minute, 20 an hour per user, kept in memory, so a restart resets it).
+- No rate limit on `/v1/spots` (sending spots has one: 3 a minute, 20 an hour per user and per callsign, kept in memory, so a restart resets it).
 - `/v1/dx/spots` is not in `/health`: the sending sessions open only when a user spots.
 - Container logs are only in the Coolify UI (not reachable by the Coolify API for compose applications).
 - Permissions still to ask: DX Summit (no published terms), SOTA commercial licence (`marketing/outreach/04-sota-mt.md`).

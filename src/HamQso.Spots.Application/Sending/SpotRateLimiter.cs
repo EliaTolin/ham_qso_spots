@@ -1,9 +1,9 @@
 namespace HamQso.Spots.Application.Sending;
 
 /// <summary>
-/// At most <see cref="Limits"/> spots per user: 3 a minute and 20 an hour,
-/// counted over sliding windows. Every attempt that gets this far counts,
-/// sent or not, so a user cannot hammer the node or Supabase by failing.
+/// At most <see cref="Limits"/> spots per key (a user, a callsign): 3 a minute
+/// and 20 an hour, counted over sliding windows. Every attempt that gets this
+/// far counts, sent or not, so a user cannot hammer the node or Supabase by failing.
 /// </summary>
 public sealed class SpotRateLimiter(TimeProvider time)
 {
@@ -20,13 +20,13 @@ public sealed class SpotRateLimiter(TimeProvider time)
     private DateTimeOffset lastSweep = DateTimeOffset.MinValue;
 
     /// <summary>Null when the attempt is allowed (and counted); otherwise how long to wait.</summary>
-    public TimeSpan? TryAcquire(string userId)
+    public TimeSpan? TryAcquire(string key)
     {
         var now = time.GetUtcNow();
         lock (gate)
         {
             Sweep(now);
-            if (!attempts.TryGetValue(userId, out var times)) attempts[userId] = times = [];
+            if (!attempts.TryGetValue(key, out var times)) attempts[key] = times = [];
             times.RemoveAll(t => t <= now - LongestWindow);
             var wait = RetryAfter(times, now);
             if (wait is null) times.Add(now);
@@ -49,14 +49,14 @@ public sealed class SpotRateLimiter(TimeProvider time)
         return wait;
     }
 
-    /// <summary>Forgets users with no attempt in the longest window, at most once per window.</summary>
+    /// <summary>Forgets keys with no attempt in the longest window, at most once per window.</summary>
     private void Sweep(DateTimeOffset now)
     {
         if (now - lastSweep < LongestWindow) return;
         lastSweep = now;
-        foreach (var user in attempts.Where(a => a.Value.All(t => t <= now - LongestWindow)).Select(a => a.Key).ToArray())
+        foreach (var key in attempts.Where(a => a.Value.All(t => t <= now - LongestWindow)).Select(a => a.Key).ToArray())
         {
-            attempts.Remove(user);
+            attempts.Remove(key);
         }
     }
 }

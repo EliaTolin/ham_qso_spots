@@ -8,7 +8,7 @@ public class DxSpotLineTests
     [InlineData("DX 14025.0 K1ABC CQ CW")]
     [InlineData("DX 14025.0 K1ABC")]
     [InlineData("DX 7074.0 IU4VRB/P US-2907 FT8 tnx QSO")]
-    [InlineData("DX 144300.0 EA8/DL1ABC/P 59 è grazie")]
+    [InlineData("DX 144300.0 EA8/DL1ABC/P 59 tnx ~!@#$%^&*()")]
     [InlineData("DX 1840.5 ve3xyz cq")]
     public void A_DX_line_as_the_app_builds_it_is_valid(string line) => Assert.True(DxSpotLine.IsValid(line));
 

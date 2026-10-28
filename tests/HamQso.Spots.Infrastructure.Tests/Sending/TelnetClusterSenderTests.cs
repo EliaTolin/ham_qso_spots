@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
+using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Infrastructure.Sending;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace HamQso.Spots.Infrastructure.Tests.Sending;
 
@@ -13,17 +13,20 @@ public sealed class TelnetClusterSenderTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static TelnetClusterSender Sender(int port, TimeSpan? idle = null, TimeSpan? loginTimeout = null) => new(
-        Options.Create(new DxSendOptions
-        {
-            Host = "127.0.0.1",
-            Port = port,
-            LoginTimeout = loginTimeout ?? TimeSpan.FromSeconds(5),
-            LoginFallback = TimeSpan.FromMilliseconds(300),
-            WelcomeSilence = TimeSpan.FromMilliseconds(200),
-            ReplyWindow = TimeSpan.FromMilliseconds(300),
-            IdleTimeout = idle ?? TimeSpan.FromSeconds(30),
-        }),
+    private static DxSendOptions Settings(int port, TimeSpan? idle = null, TimeSpan? loginTimeout = null, int maxSessions = 50) => new()
+    {
+        Host = "127.0.0.1",
+        Port = port,
+        LoginTimeout = loginTimeout ?? TimeSpan.FromSeconds(5),
+        LoginFallback = TimeSpan.FromMilliseconds(300),
+        WelcomeSilence = TimeSpan.FromMilliseconds(200),
+        ReplyWindow = TimeSpan.FromMilliseconds(300),
+        IdleTimeout = idle ?? TimeSpan.FromSeconds(30),
+        MaxSessions = maxSessions,
+    };
+
+    private static TelnetClusterSender Sender(int port, TimeSpan? idle = null, TimeSpan? loginTimeout = null, int maxSessions = 50) => new(
+        Microsoft.Extensions.Options.Options.Create(Settings(port, idle, loginTimeout, maxSessions)),
         TimeProvider.System,
         NullLogger<TelnetClusterSender>.Instance);
 
@@ -39,7 +42,7 @@ public sealed class TelnetClusterSenderTests
         var connection = Assert.Single(node.Connections);
         Assert.Equal(["IU4VRB-7", Line, Line], connection.Lines);
         // The echo "DX de IU4VRB-7: ..." is a spot: the app sees it in the spot list. The welcome is not a reply.
-        Assert.True(first.Sent);
+        Assert.Equal(ClusterSendStatus.Sent, first.Status);
         Assert.Empty(first.Replies);
         Assert.Equal(["Duplicate spot"], again.Replies);
     }
@@ -71,7 +74,7 @@ public sealed class TelnetClusterSenderTests
 
         var result = await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
 
-        Assert.True(result.Sent);
+        Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(2, node.Connections.Count);
     }
 
@@ -97,7 +100,7 @@ public sealed class TelnetClusterSenderTests
 
         var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
 
-        Assert.True(result.Sent);
+        Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(["IU4VRB-7", Line], Assert.Single(node.Connections).Lines);
     }
 
@@ -109,7 +112,7 @@ public sealed class TelnetClusterSenderTests
 
         var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
 
-        Assert.True(result.Sent);
+        Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(["IU4VRB-7", "", Line], Assert.Single(node.Connections).Lines);
     }
 
@@ -124,7 +127,7 @@ public sealed class TelnetClusterSenderTests
 
         var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
 
-        Assert.False(result.Sent);
+        Assert.Equal(ClusterSendStatus.Unavailable, result.Status);
     }
 
     [Fact]
@@ -135,7 +138,7 @@ public sealed class TelnetClusterSenderTests
 
         var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
 
-        Assert.False(result.Sent);
+        Assert.Equal(ClusterSendStatus.Unavailable, result.Status);
         Assert.Empty(sender.OpenLogins);
     }
 
@@ -148,7 +151,7 @@ public sealed class TelnetClusterSenderTests
 
         var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
 
-        Assert.False(result.Sent);
+        Assert.Equal(ClusterSendStatus.Unavailable, result.Status);
     }
 
     [Fact]
@@ -164,8 +167,65 @@ public sealed class TelnetClusterSenderTests
         await WaitUntil(() => sender.OpenLogins.Count == 0);
         var result = await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
 
-        Assert.True(result.Sent);
+        Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(2, node.Connections.Count);
+    }
+
+    [Fact]
+    public async Task Beyond_the_maximum_sessions_a_new_login_is_busy_until_one_closes()
+    {
+        await using var node = new FakeDxNode();
+        await using var sender = Sender(node.Port, idle: TimeSpan.FromSeconds(2), maxSessions: 2);
+
+        await sender.SendAsync("IU4VRB-7", Line, Ct);
+        await sender.SendAsync("K1ABC-1", Line, Ct);
+        var third = await sender.SendAsync("DL1XYZ-2", Line, Ct);
+        // An open login keeps working at the maximum.
+        var again = await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
+
+        Assert.Equal(ClusterSendStatus.Busy, third.Status);
+        Assert.Equal(ClusterSendStatus.Sent, again.Status);
+        Assert.Equal(2, node.Connections.Count);
+
+        await WaitUntil(() => sender.OpenLogins.Count == 0);
+        Assert.Equal(ClusterSendStatus.Sent, (await sender.SendAsync("DL1XYZ-2", Line, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task A_failed_login_does_not_hold_a_place_among_the_sessions()
+    {
+        await using var node = new FakeDxNode(closeAfterLogin: true);
+        await using var sender = Sender(node.Port, maxSessions: 1);
+
+        await sender.SendAsync("IU4VRB-7", Line, Ct);
+
+        Assert.Equal(ClusterSendStatus.Unavailable, (await sender.SendAsync("K1ABC-1", Line, Ct)).Status);
+    }
+
+    [Theory]
+    [InlineData("DX 14025.0 K1ABC CQ\r\nSET/PASSWORD x")]
+    [InlineData("DX 14025.0 K1ABC CQ\n")]
+    [InlineData("DX 14025.0 K1ABC \u00FF\u00F4")]
+    [InlineData("DX 14025.0 K1ABC \u0007")]
+    public async Task The_session_never_writes_a_second_line_or_telnet_bytes(string line)
+    {
+        await using var node = new FakeDxNode();
+        await using var session = await ClusterSendSession.OpenAsync(Settings(node.Port), "IU4VRB-7", TimeProvider.System, Ct);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => session.SendAsync(line, TimeSpan.FromMilliseconds(100), Ct));
+        await session.SendAsync(Line, TimeSpan.FromMilliseconds(300), Ct);
+
+        Assert.Equal(["IU4VRB-7", Line], Assert.Single(node.Connections).Lines);
+    }
+
+    [Fact]
+    public async Task A_login_with_a_newline_never_connects()
+    {
+        await using var node = new FakeDxNode();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => ClusterSendSession.OpenAsync(Settings(node.Port), "IU4VRB-7\r\nBYE", TimeProvider.System, Ct));
+
+        Assert.Empty(node.Connections);
     }
 
     private static async Task WaitUntil(Func<bool> condition)

@@ -29,6 +29,10 @@ public sealed class DxSendOptions
     /// <summary>The node's answer to a spot (an error, "Duplicate spot") is collected for this long.</summary>
     public TimeSpan ReplyWindow { get; set; } = TimeSpan.FromSeconds(2);
 
+    /// <summary>At most this many sessions (logins) open at once; beyond it a spot of a new login is refused (busy).</summary>
+    [Range(1, 1000)]
+    public int MaxSessions { get; set; } = 50;
+
     /// <summary>A session closes this long after its last spot, as in the app.</summary>
     public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(3);
 }

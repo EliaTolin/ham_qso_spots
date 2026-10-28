@@ -51,8 +51,19 @@ public sealed class SendSpotApiTests : IDisposable
         Assert.Empty(host.Cluster.Sent);
     }
 
+    [Fact]
+    public async Task An_anonymous_user_needs_an_account_to_spot()
+    {
+        using var response = await Post(new { line = "DX 14025.0 K1ABC CQ", ssid = 7 }, TestHost.AnonymousToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("account_required", (await Body(response)).GetProperty("error").GetString());
+        Assert.Empty(host.Cluster.Sent);
+    }
+
     [Theory]
     [InlineData("SH/DX 50")]
+    [InlineData("DX 14025.0 K1ABC CQ \u00FF\u00FD\u0001")]
     [InlineData("DX 14025.0 K1ABC CQ\r\nSET/PASSWORD x")]
     [InlineData("")]
     public async Task Anything_but_one_DX_line_is_invalid_line(string line)
@@ -123,12 +134,23 @@ public sealed class SendSpotApiTests : IDisposable
     [Fact]
     public async Task When_the_node_cannot_be_reached_it_is_a_502_node_unavailable()
     {
-        host.Cluster.Unavailable = true;
+        host.Cluster.Failure = HamQso.Spots.Application.Ports.ClusterSendResult.Unavailable;
 
         using var response = await Post(new { line = "DX 14025.0 K1ABC CQ", ssid = 7 });
 
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Equal("node_unavailable", (await Body(response)).GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task When_too_many_sessions_are_open_it_is_a_503_busy()
+    {
+        host.Cluster.Failure = HamQso.Spots.Application.Ports.ClusterSendResult.Busy;
+
+        using var response = await Post(new { line = "DX 14025.0 K1ABC CQ", ssid = 7 });
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("busy", (await Body(response)).GetProperty("error").GetString());
     }
 
     [Theory]

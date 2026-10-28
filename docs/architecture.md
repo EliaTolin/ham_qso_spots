@@ -96,10 +96,13 @@ The full contract for clients is in [protocol.md](protocol.md).
 
 A browser cannot open telnet, so the web app sends its DX spots through the server (`POST /v1/dx/spots`, contract in [protocol.md](protocol.md)); the phones keep their own telnet. `SendDxSpot`:
 
-1. checks the line (`DxSpotLine`: one `DX <kHz.d> <call> <text>` line, nothing else) and the SSID (1–99);
-2. counts the attempt (`SpotRateLimiter`: 3 a minute, 20 an hour per user, in memory: a restart forgets the counts);
-3. reads the callsign of the user's profile (`SupabaseProfileReader`: PostgREST `profiles?id=eq.<sub>&select=callsign` with the secret key, since profiles are private);
-4. sends it as `<CALLSIGN>-<ssid>` (`TelnetClusterSender`), logging user, login, line and outcome.
+1. checks the line (`DxSpotLine`: one `DX <kHz.d> <call> <text>` line of printable ASCII, nothing else) and the SSID (1–99);
+2. counts the attempt for the user (`SpotRateLimiter`: 3 a minute, 20 an hour, in memory: a restart forgets the counts);
+3. reads the callsign of the user's profile (`SupabaseProfileReader`: PostgREST `profiles?id=eq.<sub>&select=callsign` with the secret key, since profiles are private) and checks it again against the profile pattern (`ClusterLogin`);
+4. counts the attempt for the callsign (same limits: two accounts with one callsign share them);
+5. sends it as `<CALLSIGN>-<ssid>` (`TelnetClusterSender`, at most 50 sessions at once), logging user, login, line and outcome.
+
+Anonymous users (`is_anonymous` in the token) and reader projects are refused by the endpoint before all this. The telnet session refuses to write any line with a control character or a byte above `0x7E` (last guard against a second command or telnet bytes).
 
 `TelnetClusterSender` mirrors the app's `OnDemandTelnetSender`: one session per login (`ClusterSendSession`, login dialogue in `ClusterSendDialogue`: the prompt or a 4 s fallback, an empty password if asked, ready after 2 s of silence), reused by the next spots of that login, closed 3 minutes after the last one; spots of one login go one at a time. The node's lines in the 2 s after the command are returned, spots excluded. The confirmation is the echo in the spot list, as on the phone. Node and timings are configuration (`DxSend`), default DXFun as the app.
 
@@ -107,7 +110,7 @@ A browser cannot open telnet, so the web app sends its DX spots through the serv
 
 - **Apps** connect to Mosquitto with the Supabase access token as password. `mosquitto-go-auth` (HTTP backend) asks the server: `POST /mqtt/user` (who may connect), `/mqtt/acl` (who may read or write a topic), `/mqtt/superuser` (always no).
 - **Rules** (`MqttAccess`): a valid Supabase token may read and subscribe `spots/…`; only the `ingestor` account (password from configuration, compared in constant time) may write; nobody may use other topics; the name `ingestor` never logs in with a token.
-- **Sending spots**: only tokens of the HamQSO project (`TokenUser.IsReader` false); the login is always the profile's callsign, never one from the request.
+- **Sending spots**: only tokens of the HamQSO project of signed-in users (`TokenUser.IsReader` and `IsAnonymous` false); the login is always the profile's callsign, never one from the request.
 - **Tokens** (`SupabaseJwtValidator`): ES256 signature checked with the public keys (JWKS) of the project that issued the token, issuer `https://<project>.supabase.co/auth/v1`, audience `authenticated`, expiry. Accepted projects: HamQSO (`Supabase:Url`) and the readers (`Supabase:ReaderUrls`, today HamQRG `dhmzkhipxvxtbbchvquc`), which may only read like HamQSO users; the alerts stay on HamQSO. A token of any other issuer is refused before any request, so keys are fetched only from the configured projects. Keys cached 10 minutes per project; an unknown key id forces a refresh at most once a minute per project; if Supabase does not answer, the cached keys are kept (tokens signed with them are still accepted, others are refused).
 - **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`, `/v1/dx/spots`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
 - `/health` is public and shows only the state of each entry, never error messages (those go to the log).

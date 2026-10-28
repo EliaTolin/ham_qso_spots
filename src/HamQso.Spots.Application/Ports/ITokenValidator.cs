@@ -8,7 +8,8 @@ public interface ITokenValidator
 }
 
 /// <summary>
-/// Who a valid token belongs to: the Supabase user id ("sub") and whether the
-/// token comes from a reader project (HamQRG), whose users may only read.
+/// Who a valid token belongs to: the Supabase user id ("sub"), whether the
+/// token comes from a reader project (HamQRG), whose users may only read, and
+/// whether the user is anonymous (claim "is_anonymous": no signed-in account).
 /// </summary>
-public sealed record TokenUser(string UserId, bool IsReader);
+public sealed record TokenUser(string UserId, bool IsReader, bool IsAnonymous);

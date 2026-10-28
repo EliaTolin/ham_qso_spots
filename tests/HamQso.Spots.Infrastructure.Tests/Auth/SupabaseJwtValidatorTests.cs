@@ -149,8 +149,16 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         var hamqso = await validator.ValidateAsync(Token(projectKey, "key-1"), ct);
         var reader = await validator.ValidateAsync(Token(readerKey, "reader-1", issuer: ReaderIssuer), ct);
 
-        Assert.Equal(new TokenUser("8f2c-user-id", false), hamqso);
-        Assert.Equal(new TokenUser("8f2c-user-id", true), reader);
+        Assert.Equal(new TokenUser("8f2c-user-id", false, false), hamqso);
+        Assert.Equal(new TokenUser("8f2c-user-id", true, false), reader);
+    }
+
+    [Fact]
+    public async Task An_anonymous_user_is_told_by_the_is_anonymous_claim()
+    {
+        var user = await validator.ValidateAsync(Token(projectKey, "key-1", anonymous: true), TestContext.Current.CancellationToken);
+
+        Assert.True(user!.IsAnonymous);
     }
 
     [Fact]
@@ -161,7 +169,7 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         Assert.False(await Check(Token(projectKey, "key-1")));
     }
 
-    private static string Token(ECDsa key, string kid, DateTimeOffset? expires = null, string issuer = Issuer, string audience = "authenticated") =>
+    private static string Token(ECDsa key, string kid, DateTimeOffset? expires = null, string issuer = Issuer, string audience = "authenticated", bool anonymous = false) =>
         new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }.CreateToken(new SecurityTokenDescriptor
         {
             Issuer = issuer,
@@ -169,7 +177,7 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
             IssuedAt = Now.AddMinutes(-1).UtcDateTime,
             NotBefore = Now.AddMinutes(-1).UtcDateTime,
             Expires = (expires ?? Now.AddHours(1)).UtcDateTime,
-            Claims = new Dictionary<string, object> { ["sub"] = "8f2c-user-id", ["role"] = "authenticated" },
+            Claims = new Dictionary<string, object> { ["sub"] = "8f2c-user-id", ["role"] = "authenticated", ["is_anonymous"] = anonymous },
             SigningCredentials = new SigningCredentials(new ECDsaSecurityKey(key) { KeyId = kid }, SecurityAlgorithms.EcdsaSha256),
         });
 

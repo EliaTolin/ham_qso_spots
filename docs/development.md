@@ -31,11 +31,11 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 356 tests, about 45 s
+dotnet test                 # 387 tests, about 45 s
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 
-Coverage on 28/10/2026: 98.1% (Domain 100%, Infrastructure 98.6%, Host 96.2%, Application 96.2%); generated code (`obj/`: regex and logging generators) is left out.
+Coverage on 29/10/2026: 98.2% (Domain 100%, Infrastructure 98.6%, Host 96.2%, Application 96.4%); generated code (`obj/`: regex and logging generators) is left out.
 
 | Kind | Where | Notes |
 |---|---|---|
@@ -43,7 +43,7 @@ Coverage on 28/10/2026: 98.1% (Domain 100%, Infrastructure 98.6%, Host 96.2%, Ap
 | Pure rules | `Domain.Tests` | Band plan: the 57 cases of `Fixtures/band_plan_cases.json`, a copy of `ham_qso_supabase/supabase/functions/_shared/band_plan_cases.json` (keep them identical; the app has the same file) |
 | Use cases | `Application.Tests` | Fakes for every port; a fake store gives growing seqs as Postgres does |
 | Sources | `Infrastructure.Tests/Sources` | Real answers recorded on 27/10/2026 in `Fixtures/` plus malformed rows; telnet against a fake node on loopback |
-| Sending spots | `Infrastructure.Tests/Sending` | `TelnetClusterSender` against `FakeDxNode` (loopback, DXSpider-like: prompt, echo, "Duplicate spot"): login, reuse, idle close, password, refused login, timeouts |
+| Sending spots | `Infrastructure.Tests/Sending` | `TelnetClusterSender` against `FakeDxNode` (loopback, DXSpider-like: prompt, echo, "Duplicate spot"): login, reuse, idle close, password, refused login, timeouts, session cap, no second line or telnet bytes ever written |
 | Postgres, Mosquitto | `Infrastructure.Tests/Postgres`, `/Mqtt` | Real containers (`postgres:17-alpine`, `eclipse-mosquitto:2.0`, and the image of `deploy/mosquitto`) |
 | Host | `Host.Tests` | The real Host via `WebApplicationFactory` (`TestHost`: no workers, fake archive reader and token check; the local port is chosen with a test header) |
 
@@ -74,7 +74,7 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_... SUPABASE_SECRET_KEY=sb_secret_... do
 
 They test the deployed system as an app sees it: `/health`, the client algorithm (MQTT subscription, REST list, a live piece of news found again with `since_seq`), refused tokens and publishes, `/mqtt/*` not reachable from outside, `alert_spots` matching only the test alert.
 
-`SendSpotTests` are different: they run the server in the test process (`WebApplicationFactory`, no sources, archive or broker) with the production Supabase project and `DxSend` pointed at a `FakeDxNode` on loopback, because the deployed server would spot on the real cluster. Real token check, real profile read (the test user gets the callsign `Q0E2E`), real rate limit and telnet sender. **Never send spots to the public cluster from a test.**
+`SendSpotTests` are different: they run the server in the test process (`WebApplicationFactory`, no sources, archive or broker) with the production Supabase project and `DxSend` pointed at a `FakeDxNode` on loopback, because the deployed server would spot on the real cluster. Real token check, real profile read (a signed-in test user made with the Auth admin API, `e2e-<uuid>@example.com`, gets the callsign `Q0E2E`; an anonymous one must be refused), real rate limit and telnet sender. **Never send spots to the public cluster from a test.**
 
 What they create and remove: an anonymous Supabase user, Pro for the run (no devices, so no push reaches a phone), an alert on `Q0E2E`; at the end the user (with its alerts and events), the `processed_spots` rows and the +1 in the anonymous statistics.
 

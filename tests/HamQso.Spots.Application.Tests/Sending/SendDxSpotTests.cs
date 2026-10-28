@@ -87,16 +87,17 @@ public class SendDxSpotTests
     }
 
     [Fact]
-    public async Task Sixty_spots_a_minute_for_the_whole_server_then_busy_and_the_user_keeps_their_attempt()
+    public async Task Sixty_spots_a_minute_for_the_whole_server_then_busy_and_the_attempt_counts_for_the_user()
     {
         for (var i = 0; i < 60; i++) await send.ExecuteAsync($"user-{i}", Line, 7, TestContext.Current.CancellationToken);
 
         Assert.Equal(SendDxSpotOutcome.Busy, (await Send()).Outcome);
         Assert.Equal(60, cluster.Sent.Count);
 
-        // The server stopped it, not the user: still 3 spots for them once the minute is over.
-        time.Advance(TimeSpan.FromMinutes(1));
-        for (var i = 0; i < 3; i++) Assert.Equal(SendDxSpotOutcome.Sent, (await Send()).Outcome);
+        // Like every attempt past the user limit it counts (no refund): two more (busy too) and the user is limited.
+        await Send();
+        await Send();
+        Assert.Equal(SendDxSpotOutcome.RateLimited, (await Send()).Outcome);
     }
 
     [Fact]
@@ -115,11 +116,12 @@ public class SendDxSpotTests
     }
 
     [Fact]
-    public async Task A_login_another_user_has_open_is_login_in_use()
+    public async Task A_login_another_user_has_open_is_just_busy()
     {
+        // Not revealed: the client cannot tell it from a full server.
         cluster.Failure = ClusterSendResult.LoginInUse;
 
-        Assert.Equal(SendDxSpotOutcome.LoginInUse, (await Send()).Outcome);
+        Assert.Equal(SendDxSpotOutcome.Busy, (await Send()).Outcome);
     }
 
     [Fact]

@@ -62,15 +62,6 @@ public sealed class SpotRateLimiter(TimeProvider time)
         }
     }
 
-    /// <summary>Gives the user back their last attempt: the server, not the user, stopped it.</summary>
-    public void RefundUser(string userId)
-    {
-        lock (gate)
-        {
-            if (attempts.TryGetValue(userId, out var times) && times.Count > 0) times.RemoveAt(times.Count - 1);
-        }
-    }
-
     /// <summary>The longest wait among the exceeded limits: when the oldest attempt of the window leaves it.</summary>
     public static TimeSpan? RetryAfter(IReadOnlyList<(int Count, TimeSpan Window)> limits, IReadOnlyList<DateTimeOffset> times, DateTimeOffset now)
     {

@@ -13,7 +13,6 @@ public enum SendDxSpotOutcome
     NoCallsign,
     NodeUnavailable,
     Busy,
-    LoginInUse,
 }
 
 public sealed record SendDxSpotResult(SendDxSpotOutcome Outcome, IReadOnlyList<string> Replies, TimeSpan? RetryAfter = null)
@@ -51,19 +50,15 @@ public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender c
         var callsign = ClusterLogin.NormalizeCallsign(await profiles.CallsignAsync(userId, cancellationToken).ConfigureAwait(false));
         if (callsign is null) return (SendDxSpotResult.Failed(SendDxSpotOutcome.NoCallsign), null);
         // Last: only spots that passed every other check use the server budget.
-        if (limiter.TryAcquireServer() is not null)
-        {
-            limiter.RefundUser(userId);
-            return (SendDxSpotResult.Failed(SendDxSpotOutcome.Busy), null);
-        }
+        if (limiter.TryAcquireServer() is not null) return (SendDxSpotResult.Failed(SendDxSpotOutcome.Busy), null);
 
         var login = ClusterLogin.Create(callsign, ssid!.Value);
         var sent = await cluster.SendAsync(userId, login, line!, cancellationToken).ConfigureAwait(false);
         return (sent.Status switch
         {
             ClusterSendStatus.Sent => new SendDxSpotResult(SendDxSpotOutcome.Sent, sent.Replies),
-            ClusterSendStatus.Busy => SendDxSpotResult.Failed(SendDxSpotOutcome.Busy),
-            ClusterSendStatus.LoginInUse => SendDxSpotResult.Failed(SendDxSpotOutcome.LoginInUse),
+            // A login held by another user is not revealed: the same answer as a full server.
+            ClusterSendStatus.Busy or ClusterSendStatus.LoginInUse => SendDxSpotResult.Failed(SendDxSpotOutcome.Busy),
             _ => SendDxSpotResult.Failed(SendDxSpotOutcome.NodeUnavailable),
         }, login);
     }

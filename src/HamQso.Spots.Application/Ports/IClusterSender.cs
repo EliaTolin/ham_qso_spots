@@ -22,7 +22,7 @@ public enum ClusterSendStatus
     /// <summary>The server is full: no session can be opened now, or too many spots for the whole server.</summary>
     Busy,
 
-    /// <summary>Another user has a session open with this login: two users never share one.</summary>
+    /// <summary>Another user has a session open with this login: two users never share one (the client sees only "busy").</summary>
     LoginInUse,
 }
 

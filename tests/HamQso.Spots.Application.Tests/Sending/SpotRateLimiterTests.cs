@@ -81,17 +81,6 @@ public class SpotRateLimiterTests
     }
 
     [Fact]
-    public void A_refunded_attempt_does_not_count_for_the_user()
-    {
-        for (var i = 0; i < 3; i++) limiter.TryAcquireUser("u");
-        limiter.RefundUser("u");
-
-        Assert.True(Allowed("u"));
-        Assert.False(Allowed("u"));
-        limiter.RefundUser("nobody");
-    }
-
-    [Fact]
     public void Users_silent_for_an_hour_are_forgotten_and_start_again()
     {
         for (var i = 0; i < 3; i++) limiter.TryAcquireUser("u");

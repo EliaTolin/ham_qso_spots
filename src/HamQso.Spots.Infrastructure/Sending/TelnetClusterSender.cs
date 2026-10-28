@@ -11,8 +11,8 @@ namespace HamQso.Spots.Infrastructure.Sending;
 /// session per user, opened at the first spot, reused by the next ones and
 /// closed <see cref="DxSendOptions.IdleTimeout"/> after the last; a spot with
 /// another login (another SSID) replaces the user's session. A login belongs to
-/// one user at a time: while another user's session has it, the spot is
-/// <see cref="ClusterSendResult.LoginInUse"/>. Spots of the same user go one at
+/// one user at a time: while another user's session has it (until that session
+/// closes when idle), the spot is <see cref="ClusterSendResult.LoginInUse"/>. Spots of the same user go one at
 /// a time; different users do not wait for each other.
 /// At most <see cref="DxSendOptions.MaxSessions"/> sessions at once: a new one
 /// beyond them closes the least recently used idle session, and is

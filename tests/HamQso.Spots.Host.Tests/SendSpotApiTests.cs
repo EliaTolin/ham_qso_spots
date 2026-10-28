@@ -154,14 +154,14 @@ public sealed class SendSpotApiTests : IDisposable
     }
 
     [Fact]
-    public async Task A_login_another_user_has_open_is_a_409_login_in_use()
+    public async Task A_login_another_user_has_open_is_the_generic_503_busy()
     {
         host.Cluster.Failure = HamQso.Spots.Application.Ports.ClusterSendResult.LoginInUse;
 
         using var response = await Post(new { line = "DX 14025.0 K1ABC CQ", ssid = 7 });
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("login_in_use", (await Body(response)).GetProperty("error").GetString());
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("busy", (await Body(response)).GetProperty("error").GetString());
     }
 
     [Theory]

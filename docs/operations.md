@@ -27,7 +27,7 @@ Port `8081` of the server (`/mqtt/*`, broker auth) and `1883` of Mosquitto (the 
 | `Server` | `PublicPort` (8080), `InternalPort` (8081) |
 | `ConnectionStrings:Spots` | Postgres connection |
 | `Telnet` | `Callsign` (`N0CALL-87`; fallback `IU4VRB-1` if nodes refuse it), `Backlog` (50), `IdleTimeout` (5 min), `ConnectTimeout` (10 s), `LoginFallback` (4 s), `BacklogDelay` (2 s), `MaxBackoff` (2 min), `Nodes[]` (`Name`, `Host`, `Port`, `Enabled`) |
-| `Feeds:<name>` | `HamQTH`, `DXSummit`, `POTA`, `SOTA`, `WWFF`: `Enabled` (true), `Interval` |
+| `Feeds:<name>` | `HamQTH`, `DXSummit`, `POTA`, `SOTA`, `WWFF`: `Enabled` (true), `Interval` (SOTA at least `00:01:00`: a shorter one stops the server at start) |
 | `Mqtt` | `Host`, `Port` (1883), `ClientId`, `Username` (`ingestor`), `Password` |
 | `Supabase` | `Url`, `SecretKey`, `AlertsFunction` (`alert_spots`) |
 

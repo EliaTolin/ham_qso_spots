@@ -18,8 +18,6 @@ namespace HamQso.Spots.Host;
 /// <summary>The composition root: every port gets its adapter here and nowhere else.</summary>
 public static class ServiceCollectionExtensions
 {
-    private const string UserAgent = "HamQSO-Spots/1.0 (+https://hamqso.app)";
-
     public static IServiceCollection AddSpotsServer(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton(TimeProvider.System);
@@ -50,13 +48,9 @@ public static class ServiceCollectionExtensions
             return new MqttAccess(sp.GetRequiredService<ITokenValidator>(), mqtt.Username, mqtt.Password);
         });
 
-        foreach (var (feed, _) in SpotSourceFactory.Feeds)
+        foreach (var (feed, _, _) in SpotSourceFactory.Feeds)
         {
-            services.AddHttpClient(feed.Name, c =>
-            {
-                c.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-                c.Timeout = TimeSpan.FromSeconds(10);
-            });
+            services.AddHttpClient(feed.Name, SpotSourceFactory.ConfigureClient);
         }
         services.AddSingleton<IEnumerable<ISpotSource>>(sp =>
         {

@@ -25,8 +25,9 @@ public class PolledSpotSourceTests
         await cts.CancelAsync();
         await reading;
 
-        // 1 at start + 1 per minute; never more, with 1 or 1.000 MQTT clients.
-        Assert.InRange(handler.Requests, 10, 11);
+        // The epoch at start + 1 per minute, the list once (the epoch never changes);
+        // never more, with 1 or 1.000 MQTT clients.
+        Assert.InRange(handler.Requests, 11, 12);
     }
 
     [Fact]

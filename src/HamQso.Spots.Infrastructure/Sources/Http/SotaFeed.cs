@@ -3,12 +3,17 @@ using HamQso.Spots.Domain.Spots;
 
 namespace HamQso.Spots.Infrastructure.Sources.Http;
 
-/// <summary>SOTA (SOTAwatch 3): frequency in MHz. QRT and test spots are skipped.</summary>
+/// <summary>
+/// SOTA (SOTAwatch 3): frequency in MHz. QRT and test spots are skipped.
+/// SOTA asks to fetch the spots only when the epoch has changed (B26).
+/// </summary>
 public sealed class SotaFeed : IPolledFeed
 {
     public string Name => "SOTA";
 
     public Uri Url { get; } = new("https://api-db2.sota.org.uk/api/spots/50/all/all");
+
+    public Uri? EpochUrl { get; } = new("https://api-db2.sota.org.uk/api/spots/epoch");
 
     public IReadOnlyList<Spot> Parse(string body, DateTimeOffset now)
     {

@@ -24,8 +24,8 @@ public sealed record SendDxSpotResult(SendDxSpotOutcome Outcome, IReadOnlyList<s
 /// POST /v1/dx/spots: a HamQSO user without telnet (the web app) sends a DX
 /// spot through the server, as the phone app does by itself. The login is
 /// always the callsign of the user's profile, never one from the request; only
-/// a <see cref="DxSpotLine"/> goes out; at most <see cref="SpotRateLimiter.Limits"/>
-/// per user and, the same, per callsign (two accounts with one callsign share it).
+/// a <see cref="DxSpotLine"/> goes out; at most <see cref="SpotRateLimiter.UserLimits"/>
+/// per user and <see cref="SpotRateLimiter.ServerLimits"/> for the whole server.
 /// The node's echo reaches the user with the other spots, as on the phone.
 /// Every attempt is logged.
 /// </summary>
@@ -44,15 +44,16 @@ public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender c
     {
         if (!DxSpotLine.IsValid(line)) return (SendDxSpotResult.Failed(SendDxSpotOutcome.InvalidLine), null);
         if (!ClusterLogin.IsValidSsid(ssid)) return (SendDxSpotResult.Failed(SendDxSpotOutcome.InvalidSsid), null);
-        if (limiter.TryAcquire(UserKey(userId)) is { } wait) return (SendDxSpotResult.Failed(SendDxSpotOutcome.RateLimited, wait), null);
+        var (decision, wait) = limiter.TryAcquire(userId);
+        if (decision == RateDecision.UserLimited) return (SendDxSpotResult.Failed(SendDxSpotOutcome.RateLimited, wait), null);
+        if (decision == RateDecision.ServerBusy) return (SendDxSpotResult.Failed(SendDxSpotOutcome.Busy), null);
 
         // Checked again here, although the database checks it too: nothing else is ever a login.
         var callsign = ClusterLogin.NormalizeCallsign(await profiles.CallsignAsync(userId, cancellationToken).ConfigureAwait(false));
         if (callsign is null) return (SendDxSpotResult.Failed(SendDxSpotOutcome.NoCallsign), null);
-        if (limiter.TryAcquire(CallsignKey(callsign)) is { } callsignWait) return (SendDxSpotResult.Failed(SendDxSpotOutcome.RateLimited, callsignWait), null);
 
         var login = ClusterLogin.Create(callsign, ssid!.Value);
-        var sent = await cluster.SendAsync(login, line!, cancellationToken).ConfigureAwait(false);
+        var sent = await cluster.SendAsync(userId, login, line!, cancellationToken).ConfigureAwait(false);
         return (sent.Status switch
         {
             ClusterSendStatus.Sent => new SendDxSpotResult(SendDxSpotOutcome.Sent, sent.Replies),
@@ -60,11 +61,6 @@ public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender c
             _ => SendDxSpotResult.Failed(SendDxSpotOutcome.NodeUnavailable),
         }, login);
     }
-
-    /// <summary>Users and callsigns count apart in the same limiter; the prefixes keep them from meeting.</summary>
-    private static string UserKey(string userId) => "user:" + userId;
-
-    private static string CallsignKey(string callsign) => "call:" + callsign;
 
     [LoggerMessage(Level = LogLevel.Information, Message = "DX spot by user {UserId} as {Login}: {Line} -> {Outcome}")]
     private static partial void LogSend(ILogger logger, string userId, string login, string line, SendDxSpotOutcome outcome);

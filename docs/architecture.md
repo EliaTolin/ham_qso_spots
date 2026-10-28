@@ -97,14 +97,13 @@ The full contract for clients is in [protocol.md](protocol.md).
 A browser cannot open telnet, so the web app sends its DX spots through the server (`POST /v1/dx/spots`, contract in [protocol.md](protocol.md)); the phones keep their own telnet. `SendDxSpot`:
 
 1. checks the line (`DxSpotLine`: one `DX <kHz.d> <call> <text>` line of printable ASCII, nothing else) and the SSID (1–99);
-2. counts the attempt for the user (`SpotRateLimiter`: 3 a minute, 20 an hour, in memory: a restart forgets the counts);
+2. counts the attempt (`SpotRateLimiter`, in memory: a restart forgets the counts): 3 a minute and 20 an hour per user, 60 a minute for the whole server. No limit per callsign: profile callsigns are not verified, so it would let anyone use up someone else's;
 3. reads the callsign of the user's profile (`SupabaseProfileReader`: PostgREST `profiles?id=eq.<sub>&select=callsign` with the secret key, since profiles are private) and checks it again against the profile pattern (`ClusterLogin`);
-4. counts the attempt for the callsign (same limits: two accounts with one callsign share them);
-5. sends it as `<CALLSIGN>-<ssid>` (`TelnetClusterSender`, at most 50 sessions at once), logging user, login, line and outcome.
+4. sends it as `<CALLSIGN>-<ssid>` (`TelnetClusterSender`), logging user, login, line and outcome.
 
 Anonymous users (`is_anonymous` in the token) and reader projects are refused by the endpoint before all this. The telnet session refuses to write any line with a control character or a byte above `0x7E` (last guard against a second command or telnet bytes).
 
-`TelnetClusterSender` mirrors the app's `OnDemandTelnetSender`: one session per login (`ClusterSendSession`, login dialogue in `ClusterSendDialogue`: the prompt or a 4 s fallback, an empty password if asked, ready after 2 s of silence), reused by the next spots of that login, closed 3 minutes after the last one; spots of one login go one at a time. The node's lines in the 2 s after the command are returned, spots excluded. The confirmation is the echo in the spot list, as on the phone. Node and timings are configuration (`DxSend`), default DXFun as the app.
+`TelnetClusterSender` mirrors the app's `OnDemandTelnetSender`: one session per user (`ClusterSendSession`, login dialogue in `ClusterSendDialogue`: the prompt or a 4 s fallback, an empty password if asked, ready after 2 s of silence), reused by the next spots of that user, replaced when the login changes (another SSID), closed 3 minutes after the last spot; spots of one user go one at a time. At most 50 sessions: a new one beyond them closes the least recently used session that is not sending, and is refused (`busy`) only when all are sending. Once a spot has started it follows its own timeouts (15 s login, 2 s reply window), not the HTTP request, and an open session always gets its idle timer, whatever happened. The node's lines in the 2 s after the command are returned, spots excluded. The confirmation is the echo in the spot list, as on the phone. Node and timings are configuration (`DxSend`), default DXFun as the app.
 
 ## Access control
 

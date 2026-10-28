@@ -10,18 +10,20 @@ public class SpotRateLimiterTests
 
     public SpotRateLimiterTests() => limiter = new SpotRateLimiter(time);
 
+    private bool Allowed(string user) => limiter.TryAcquire(user).Decision == RateDecision.Allowed;
+
     [Fact]
     public void Three_spots_a_minute_pass_the_fourth_waits_until_the_first_leaves_the_minute()
     {
-        Assert.Null(limiter.TryAcquire("u"));
+        Assert.True(Allowed("u"));
         time.Advance(TimeSpan.FromSeconds(10));
-        Assert.Null(limiter.TryAcquire("u"));
-        Assert.Null(limiter.TryAcquire("u"));
+        Assert.True(Allowed("u"));
+        Assert.True(Allowed("u"));
 
-        Assert.Equal(TimeSpan.FromSeconds(50), limiter.TryAcquire("u"));
+        Assert.Equal((RateDecision.UserLimited, TimeSpan.FromSeconds(50)), limiter.TryAcquire("u"));
 
         time.Advance(TimeSpan.FromSeconds(50));
-        Assert.Null(limiter.TryAcquire("u"));
+        Assert.True(Allowed("u"));
     }
 
     [Fact]
@@ -29,25 +31,25 @@ public class SpotRateLimiterTests
     {
         for (var i = 0; i < 20; i++)
         {
-            Assert.Null(limiter.TryAcquire("u"));
+            Assert.True(Allowed("u"));
             time.Advance(TimeSpan.FromMinutes(1));
         }
 
         // 20 minutes went by: the first spot leaves the hour in 40.
-        Assert.Equal(TimeSpan.FromMinutes(40), limiter.TryAcquire("u"));
+        Assert.Equal((RateDecision.UserLimited, TimeSpan.FromMinutes(40)), limiter.TryAcquire("u"));
         time.Advance(TimeSpan.FromMinutes(40));
-        Assert.Null(limiter.TryAcquire("u"));
+        Assert.True(Allowed("u"));
     }
 
     [Fact]
     public void A_refused_attempt_does_not_count()
     {
         for (var i = 0; i < 3; i++) limiter.TryAcquire("u");
-        for (var i = 0; i < 10; i++) Assert.NotNull(limiter.TryAcquire("u"));
+        for (var i = 0; i < 10; i++) Assert.False(Allowed("u"));
 
         time.Advance(TimeSpan.FromMinutes(1));
 
-        Assert.Null(limiter.TryAcquire("u"));
+        Assert.True(Allowed("u"));
     }
 
     [Fact]
@@ -55,8 +57,29 @@ public class SpotRateLimiterTests
     {
         for (var i = 0; i < 3; i++) limiter.TryAcquire("u");
 
-        Assert.NotNull(limiter.TryAcquire("u"));
-        Assert.Null(limiter.TryAcquire("v"));
+        Assert.False(Allowed("u"));
+        Assert.True(Allowed("v"));
+    }
+
+    [Fact]
+    public void Sixty_spots_a_minute_for_the_whole_server_then_busy_for_everyone()
+    {
+        for (var i = 0; i < 60; i++) Assert.True(Allowed($"user-{i}"));
+
+        Assert.Equal(RateDecision.ServerBusy, limiter.TryAcquire("someone-new").Decision);
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        Assert.True(Allowed("someone-new"));
+    }
+
+    [Fact]
+    public void A_spot_refused_because_the_server_is_busy_does_not_count_for_the_user()
+    {
+        for (var i = 0; i < 60; i++) limiter.TryAcquire($"user-{i}");
+        for (var i = 0; i < 5; i++) limiter.TryAcquire("u");
+        time.Advance(TimeSpan.FromMinutes(1));
+
+        for (var i = 0; i < 3; i++) Assert.True(Allowed("u"));
     }
 
     [Fact]
@@ -65,7 +88,7 @@ public class SpotRateLimiterTests
         for (var i = 0; i < 3; i++) limiter.TryAcquire("u");
         time.Advance(TimeSpan.FromHours(2));
 
-        for (var i = 0; i < 3; i++) Assert.Null(limiter.TryAcquire("u"));
+        for (var i = 0; i < 3; i++) Assert.True(Allowed("u"));
     }
 
     [Fact]
@@ -75,7 +98,7 @@ public class SpotRateLimiterTests
         // 17 spots 59 minutes ago, 3 in the last 30 seconds: the minute frees in 30 s, the hour in 1 min.
         var times = Enumerable.Repeat(now.AddMinutes(-59), 17).Concat([now.AddSeconds(-30), now.AddSeconds(-20), now.AddSeconds(-10)]).ToList();
 
-        Assert.Equal(TimeSpan.FromMinutes(1), SpotRateLimiter.RetryAfter(times, now));
-        Assert.Equal(TimeSpan.FromSeconds(30), SpotRateLimiter.RetryAfter(times[^3..], now));
+        Assert.Equal(TimeSpan.FromMinutes(1), SpotRateLimiter.RetryAfter(SpotRateLimiter.UserLimits, times, now));
+        Assert.Equal(TimeSpan.FromSeconds(30), SpotRateLimiter.RetryAfter(SpotRateLimiter.UserLimits, times[^3..], now));
     }
 }

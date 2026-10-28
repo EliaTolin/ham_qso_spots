@@ -10,6 +10,9 @@ namespace HamQso.Spots.Infrastructure.Tests.Sending;
 public sealed class TelnetClusterSenderTests
 {
     private const string Line = "DX 14025.0 K1ABC CQ CW";
+    private const string UserA = "user-a";
+    private const string UserB = "user-b";
+    private const string UserC = "user-c";
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -36,8 +39,8 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode();
         await using var sender = Sender(node.Port);
 
-        var first = await sender.SendAsync("IU4VRB-7", Line, Ct);
-        var again = await sender.SendAsync("IU4VRB-7", Line, Ct);
+        var first = await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+        var again = await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
 
         var connection = Assert.Single(node.Connections);
         Assert.Equal(["IU4VRB-7", Line, Line], connection.Lines);
@@ -48,17 +51,32 @@ public sealed class TelnetClusterSenderTests
     }
 
     [Fact]
-    public async Task The_session_is_reused_by_the_same_login_and_another_login_has_its_own()
+    public async Task The_session_is_reused_by_the_same_user_and_another_user_has_their_own()
     {
         await using var node = new FakeDxNode();
         await using var sender = Sender(node.Port);
 
-        await sender.SendAsync("IU4VRB-7", Line, Ct);
-        await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
-        await sender.SendAsync("IU4VRB-12", "DX 7074.0 K1ABC FT8", Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
+        await sender.SendAsync(UserB, "K1ABC-1", "DX 7074.0 K1ABC FT8", Ct);
 
+        Assert.Equal(["IU4VRB-7", "K1ABC-1"], node.Connections.Select(c => c.Login));
+        Assert.Equal(["IU4VRB-7", "K1ABC-1"], sender.OpenLogins.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_user_has_one_session_another_SSID_replaces_it()
+    {
+        await using var node = new FakeDxNode();
+        await using var sender = Sender(node.Port);
+
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserA, "IU4VRB-12", "DX 7074.0 K1ABC FT8", Ct);
+
+        var first = node.Connections.First();
+        await first.Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         Assert.Equal(["IU4VRB-7", "IU4VRB-12"], node.Connections.Select(c => c.Login));
-        Assert.Equal(["IU4VRB-12", "IU4VRB-7"], sender.OpenLogins.Order(StringComparer.Ordinal));
+        Assert.Equal(["IU4VRB-12"], sender.OpenLogins);
     }
 
     [Fact]
@@ -67,12 +85,12 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode();
         await using var sender = Sender(node.Port, idle: TimeSpan.FromMilliseconds(500));
 
-        await sender.SendAsync("IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
         var first = Assert.Single(node.Connections);
         await first.Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         Assert.Empty(sender.OpenLogins);
 
-        var result = await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
+        var result = await sender.SendAsync(UserA, "IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
 
         Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(2, node.Connections.Count);
@@ -84,9 +102,9 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode();
         await using var sender = Sender(node.Port, idle: TimeSpan.FromMilliseconds(1500));
 
-        await sender.SendAsync("IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
         await Task.Delay(800, Ct);
-        await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
         await Task.Delay(1000, Ct);
 
         Assert.False(Assert.Single(node.Connections).Closed.Task.IsCompleted);
@@ -98,7 +116,7 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode(prompt: null);
         await using var sender = Sender(node.Port);
 
-        var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
+        var result = await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
 
         Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(["IU4VRB-7", Line], Assert.Single(node.Connections).Lines);
@@ -110,7 +128,7 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode(askPassword: true);
         await using var sender = Sender(node.Port);
 
-        var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
+        var result = await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
 
         Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(["IU4VRB-7", "", Line], Assert.Single(node.Connections).Lines);
@@ -125,7 +143,7 @@ public sealed class TelnetClusterSenderTests
         closed.Stop();
         await using var sender = Sender(port);
 
-        var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
+        var result = await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
 
         Assert.Equal(ClusterSendStatus.Unavailable, result.Status);
     }
@@ -136,7 +154,7 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode(closeAfterLogin: true);
         await using var sender = Sender(node.Port);
 
-        var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
+        var result = await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
 
         Assert.Equal(ClusterSendStatus.Unavailable, result.Status);
         Assert.Empty(sender.OpenLogins);
@@ -149,7 +167,7 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode(prompt: null);
         await using var sender = Sender(node.Port, loginTimeout: TimeSpan.FromMilliseconds(200));
 
-        var result = await sender.SendAsync("IU4VRB-7", Line, Ct);
+        var result = await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
 
         Assert.Equal(ClusterSendStatus.Unavailable, result.Status);
     }
@@ -159,36 +177,63 @@ public sealed class TelnetClusterSenderTests
     {
         await using var node = new FakeDxNode();
         await using var sender = Sender(node.Port);
-        await sender.SendAsync("IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
         var first = Assert.Single(node.Connections);
 
         first.Client.Client.Shutdown(SocketShutdown.Both);
         await first.Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         await WaitUntil(() => sender.OpenLogins.Count == 0);
-        var result = await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
+        var result = await sender.SendAsync(UserA, "IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
 
         Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(2, node.Connections.Count);
     }
 
     [Fact]
-    public async Task Beyond_the_maximum_sessions_a_new_login_is_busy_until_one_closes()
+    public async Task At_the_maximum_a_new_user_closes_the_least_recently_used_idle_session()
     {
         await using var node = new FakeDxNode();
-        await using var sender = Sender(node.Port, idle: TimeSpan.FromSeconds(2), maxSessions: 2);
+        await using var sender = Sender(node.Port, maxSessions: 2);
 
-        await sender.SendAsync("IU4VRB-7", Line, Ct);
-        await sender.SendAsync("K1ABC-1", Line, Ct);
-        var third = await sender.SendAsync("DL1XYZ-2", Line, Ct);
-        // An open login keeps working at the maximum.
-        var again = await sender.SendAsync("IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserB, "K1ABC-1", Line, Ct);
+        var third = await sender.SendAsync(UserC, "DL1XYZ-2", Line, Ct);
 
-        Assert.Equal(ClusterSendStatus.Busy, third.Status);
-        Assert.Equal(ClusterSendStatus.Sent, again.Status);
-        Assert.Equal(2, node.Connections.Count);
+        Assert.Equal(ClusterSendStatus.Sent, third.Status);
+        await node.Connections.First().Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        Assert.Equal(["DL1XYZ-2", "K1ABC-1"], sender.OpenLogins.Order(StringComparer.Ordinal));
+    }
 
-        await WaitUntil(() => sender.OpenLogins.Count == 0);
-        Assert.Equal(ClusterSendStatus.Sent, (await sender.SendAsync("DL1XYZ-2", Line, Ct)).Status);
+    [Fact]
+    public async Task At_the_maximum_with_every_session_sending_a_new_user_is_busy()
+    {
+        await using var node = new FakeDxNode();
+        await using var sender = Sender(node.Port, maxSessions: 1);
+
+        // A is opening or sending (its gate is held) for at least the welcome silence and the reply window.
+        var sending = sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+        await node.NextConnectionAsync(Ct);
+        var other = await sender.SendAsync(UserB, "K1ABC-1", Line, Ct);
+
+        Assert.Equal(ClusterSendStatus.Busy, other.Status);
+        Assert.Equal(ClusterSendStatus.Sent, (await sending).Status);
+    }
+
+    [Fact]
+    public async Task A_request_given_up_after_the_spot_started_still_sends_and_the_session_still_closes_when_idle()
+    {
+        await using var node = new FakeDxNode();
+        await using var sender = Sender(node.Port, idle: TimeSpan.FromSeconds(1));
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+
+        var sending = sender.SendAsync(UserA, "IU4VRB-7", Line, request.Token);
+        var connection = await node.NextConnectionAsync(Ct);
+        await request.CancelAsync();
+
+        Assert.Equal(ClusterSendStatus.Sent, (await sending).Status);
+        Assert.Equal(["IU4VRB-7", Line], connection.Lines);
+        await connection.Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        Assert.Empty(sender.OpenLogins);
     }
 
     [Fact]
@@ -197,9 +242,9 @@ public sealed class TelnetClusterSenderTests
         await using var node = new FakeDxNode(closeAfterLogin: true);
         await using var sender = Sender(node.Port, maxSessions: 1);
 
-        await sender.SendAsync("IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
 
-        Assert.Equal(ClusterSendStatus.Unavailable, (await sender.SendAsync("K1ABC-1", Line, Ct)).Status);
+        Assert.Equal(ClusterSendStatus.Unavailable, (await sender.SendAsync(UserB, "K1ABC-1", Line, Ct)).Status);
     }
 
     [Theory]

@@ -29,7 +29,10 @@ public sealed class DxSendOptions
     /// <summary>The node's answer to a spot (an error, "Duplicate spot") is collected for this long.</summary>
     public TimeSpan ReplyWindow { get; set; } = TimeSpan.FromSeconds(2);
 
-    /// <summary>At most this many sessions (logins) open at once; beyond it a spot of a new login is refused (busy).</summary>
+    /// <summary>
+    /// At most this many sessions (one per user) open at once; beyond it a new one
+    /// closes the least recently used idle session, or is refused (busy) when all are sending.
+    /// </summary>
     [Range(1, 1000)]
     public int MaxSessions { get; set; } = 50;
 

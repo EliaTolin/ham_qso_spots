@@ -25,14 +25,18 @@ public sealed class ClusterSendSession : IAsyncDisposable
     private List<string>? collecting;
     private volatile bool closed;
 
-    private ClusterSendSession(TcpClient tcp, ClusterSendDialogue dialogue, TimeProvider time)
+    private ClusterSendSession(TcpClient tcp, string login, ClusterSendDialogue dialogue, TimeProvider time)
     {
         this.tcp = tcp;
+        Login = login;
         this.dialogue = dialogue;
         this.time = time;
         stream = tcp.GetStream();
         reading = ReadAsync();
     }
+
+    /// <summary>The login of this session (<c>IU4VRB-7</c>).</summary>
+    public string Login { get; }
 
     /// <summary>False once the node has closed the connection (or it failed).</summary>
     public bool IsOpen => !closed;
@@ -53,7 +57,7 @@ public sealed class ClusterSendSession : IAsyncDisposable
         try
         {
             await tcp.ConnectAsync(options.Host, options.Port, deadline.Token).ConfigureAwait(false);
-            session = new ClusterSendSession(tcp, new ClusterSendDialogue(login, time.GetUtcNow()), time);
+            session = new ClusterSendSession(tcp, login, new ClusterSendDialogue(login, time.GetUtcNow()), time);
             while (!session.Ready(options))
             {
                 if (session.closed) throw new IOException($"{options.Host} closed the connection before the login of {login} was over");

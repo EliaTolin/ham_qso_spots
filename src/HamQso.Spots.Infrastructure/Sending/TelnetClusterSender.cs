@@ -8,69 +8,73 @@ namespace HamQso.Spots.Infrastructure.Sending;
 
 /// <summary>
 /// Sends users' spots to the node, like the app's OnDemandTelnetSender: one
-/// session per login, opened at the first spot, reused by the next ones and
-/// closed <see cref="DxSendOptions.IdleTimeout"/> after the last. Spots of the
-/// same login go one at a time; different logins do not wait for each other.
-/// At most <see cref="DxSendOptions.MaxSessions"/> sessions at once: a new login
-/// beyond them is <see cref="ClusterSendResult.Busy"/>.
+/// session per user, opened at the first spot, reused by the next ones and
+/// closed <see cref="DxSendOptions.IdleTimeout"/> after the last; a spot with
+/// another login (another SSID) replaces the user's session. Spots of the same
+/// user go one at a time; different users do not wait for each other.
+/// At most <see cref="DxSendOptions.MaxSessions"/> sessions at once: a new one
+/// beyond them closes the least recently used idle session, and is
+/// <see cref="ClusterSendResult.Busy"/> only when every session is sending.
+/// Once a spot starts it ends on its own timeouts (login, reply window), not
+/// with the HTTP request, and the session always gets its idle timer.
 /// </summary>
 public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options, TimeProvider time, ILogger<TelnetClusterSender> logger) : IClusterSender, IAsyncDisposable
 {
-    /// <summary>One per login ever seen (a few bytes each); the session inside comes and goes.</summary>
+    /// <summary>One per user ever seen (a few bytes each); the session inside comes and goes.</summary>
     private readonly ConcurrentDictionary<string, Slot> slots = new(StringComparer.Ordinal);
 
-    /// <summary>Sessions open or opening, counted before connecting so concurrent logins cannot pass the cap.</summary>
+    /// <summary>One decision at a time about who may open a session.</summary>
+    private readonly SemaphoreSlim capacity = new(1, 1);
+
+    /// <summary>Sessions open or opening, counted before connecting so concurrent users cannot pass the cap.</summary>
     private int sessions;
 
     /// <summary>Logins with a session open now.</summary>
-    public IReadOnlyList<string> OpenLogins => [.. slots.Where(s => s.Value.Session is { IsOpen: true }).Select(s => s.Key)];
+    public IReadOnlyList<string> OpenLogins => [.. slots.Values.Select(s => s.Session).OfType<ClusterSendSession>().Where(s => s.IsOpen).Select(s => s.Login)];
 
-    public async Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken)
+    public async Task<ClusterSendResult> SendAsync(string userId, string login, string line, CancellationToken cancellationToken)
     {
         var o = options.Value;
-        var slot = slots.GetOrAdd(login, _ => new Slot());
+        var slot = slots.GetOrAdd(userId, _ => new Slot());
+        // The request may give up while waiting for the user's previous spot; after this, nothing follows its token.
         await slot.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (slot.Session is not { IsOpen: true })
+            if (slot.Session is not { IsOpen: true } || slot.Session.Login != login)
             {
                 await CloseAsync(slot).ConfigureAwait(false);
-                if (Interlocked.Increment(ref sessions) > o.MaxSessions)
+                if (!await ReserveAsync(slot).ConfigureAwait(false))
                 {
-                    Interlocked.Decrement(ref sessions);
                     LogBusy(logger, o.MaxSessions, login);
                     return ClusterSendResult.Busy;
                 }
                 try
                 {
-                    slot.Session = await ClusterSendSession.OpenAsync(o, login, time, cancellationToken).ConfigureAwait(false);
+                    slot.Session = await ClusterSendSession.OpenAsync(o, login, time, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception e)
                 {
                     Interlocked.Decrement(ref sessions);
-                    if (!IsNodeFailure(e, cancellationToken)) throw;
+                    if (!IsNodeFailure(e)) throw;
                     LogUnavailable(logger, e, o.Host, login);
                     return ClusterSendResult.Unavailable;
                 }
             }
-            IReadOnlyList<string> replies;
             try
             {
-                replies = await slot.Session.SendAsync(line, o.ReplyWindow, cancellationToken).ConfigureAwait(false);
+                return ClusterSendResult.Sent(await slot.Session.SendAsync(line, o.ReplyWindow, CancellationToken.None).ConfigureAwait(false));
             }
-            catch (Exception e) when (IsNodeFailure(e, cancellationToken))
+            catch (Exception e) when (IsNodeFailure(e))
             {
                 LogUnavailable(logger, e, o.Host, login);
                 await CloseAsync(slot).ConfigureAwait(false);
                 return ClusterSendResult.Unavailable;
             }
-            slot.LastUse = time.GetUtcNow();
-            slot.Idle?.Dispose();
-            slot.Idle = time.CreateTimer(_ => _ = CloseIfIdleAsync(slot), null, o.IdleTimeout, Timeout.InfiniteTimeSpan);
-            return ClusterSendResult.Sent(replies);
         }
         finally
         {
+            // Whatever happened, an open session closes when idle.
+            if (slot.Session is not null) ArmIdle(slot, o.IdleTimeout);
             slot.Gate.Release();
         }
     }
@@ -89,11 +93,59 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
                 slot.Gate.Release();
             }
         }
+        capacity.Dispose();
     }
 
-    private static bool IsNodeFailure(Exception e, CancellationToken cancellationToken) =>
-        e is SocketException or IOException or TimeoutException or ObjectDisposedException
-        || (e is OperationCanceledException && !cancellationToken.IsCancellationRequested);
+    private static bool IsNodeFailure(Exception e) =>
+        e is SocketException or IOException or TimeoutException or ObjectDisposedException or OperationCanceledException;
+
+    /// <summary>
+    /// A place for a new session of <paramref name="mine"/> (whose gate is held). At
+    /// the cap, closes the least recently used session that is not sending (its
+    /// gate is free: taken without waiting, so two users never wait for each other).
+    /// </summary>
+    private async Task<bool> ReserveAsync(Slot mine)
+    {
+        await capacity.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (sessions >= options.Value.MaxSessions && !await CloseLeastRecentlyUsedAsync(mine).ConfigureAwait(false)) return false;
+            Interlocked.Increment(ref sessions);
+            return true;
+        }
+        finally
+        {
+            capacity.Release();
+        }
+    }
+
+    private async Task<bool> CloseLeastRecentlyUsedAsync(Slot mine)
+    {
+        foreach (var other in slots.Values.Where(s => s != mine && s.Session is not null).OrderBy(s => s.LastUse).ToArray())
+        {
+            if (!await other.Gate.WaitAsync(0).ConfigureAwait(false)) continue;
+            try
+            {
+                if (other.Session is null) continue;
+                LogEvicted(logger, other.Session.Login);
+                await CloseAsync(other).ConfigureAwait(false);
+                return true;
+            }
+            finally
+            {
+                other.Gate.Release();
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Called with the slot's gate held.</summary>
+    private void ArmIdle(Slot slot, TimeSpan idle)
+    {
+        slot.LastUse = time.GetUtcNow();
+        slot.Idle?.Dispose();
+        slot.Idle = time.CreateTimer(_ => _ = CloseIfIdleAsync(slot), null, idle, Timeout.InfiniteTimeSpan);
+    }
 
     private async Task CloseIfIdleAsync(Slot slot)
     {
@@ -120,8 +172,11 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
         Interlocked.Decrement(ref sessions);
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "DX sending busy: {Max} sessions open, {Login} refused")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "DX sending busy: {Max} sessions open and all sending, {Login} refused")]
     private static partial void LogBusy(ILogger logger, int max, string login);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "DX sending full: session of {Login} closed for a new one")]
+    private static partial void LogEvicted(ILogger logger, string login);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "DX node {Host} unavailable for {Login}")]
     private static partial void LogUnavailable(ILogger logger, Exception e, string host, string login);

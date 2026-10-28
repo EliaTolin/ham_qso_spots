@@ -29,6 +29,7 @@ public class SendDxSpotTests
         Assert.Equal(SendDxSpotOutcome.Sent, result.Outcome);
         Assert.Equal(["Spot sent"], result.Replies);
         Assert.Equal(("IU4VRB-7", Line), Assert.Single(cluster.Sent));
+        Assert.Equal([User], cluster.Users);
     }
 
     [Fact]
@@ -75,16 +76,22 @@ public class SendDxSpotTests
     }
 
     [Fact]
-    public async Task Two_accounts_with_the_same_callsign_share_its_limit()
+    public async Task Two_accounts_with_the_same_callsign_do_not_share_a_limit()
     {
-        await Send();
-        await Send();
-        await Send(user: OtherUser);
+        // Profile callsigns are not verified: a limit per callsign would let anyone use up someone else's.
+        for (var i = 0; i < 3; i++) await Send();
 
-        var result = await Send(user: OtherUser);
+        Assert.Equal(SendDxSpotOutcome.Sent, (await Send(user: OtherUser)).Outcome);
+    }
 
-        Assert.Equal(SendDxSpotOutcome.RateLimited, result.Outcome);
-        Assert.Equal(3, cluster.Sent.Count);
+    [Fact]
+    public async Task Sixty_spots_a_minute_for_the_whole_server_then_busy_before_the_profile_is_read()
+    {
+        for (var i = 0; i < 60; i++) await send.ExecuteAsync($"user-{i}", Line, 7, TestContext.Current.CancellationToken);
+        var reads = profiles.Reads;
+
+        Assert.Equal(SendDxSpotOutcome.Busy, (await Send()).Outcome);
+        Assert.Equal(reads, profiles.Reads);
     }
 
     [Fact]
@@ -135,9 +142,12 @@ public class SendDxSpotTests
 
         public ClusterSendResult? Failure { get; set; }
 
-        public Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken)
+        public List<string> Users { get; } = [];
+
+        public Task<ClusterSendResult> SendAsync(string userId, string login, string line, CancellationToken cancellationToken)
         {
             if (Failure is not null) return Task.FromResult(Failure);
+            Users.Add(userId);
             Sent.Add((login, line));
             return Task.FromResult(ClusterSendResult.Sent(["Spot sent"]));
         }

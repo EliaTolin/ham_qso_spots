@@ -88,7 +88,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
         /// <summary>What the node does instead of sending: Unavailable or Busy.</summary>
         public ClusterSendResult? Failure { get; set; }
 
-        public Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken)
+        public Task<ClusterSendResult> SendAsync(string userId, string login, string line, CancellationToken cancellationToken)
         {
             if (Failure is not null) return Task.FromResult(Failure);
             Sent.Add((login, line));

@@ -3,7 +3,12 @@ namespace HamQso.Spots.Application.Ports;
 /// <summary>Sends one command to the DX cluster node, logged in as a user.</summary>
 public interface IClusterSender
 {
-    Task<ClusterSendResult> SendAsync(string login, string line, CancellationToken cancellationToken);
+    /// <summary>
+    /// Sends <paramref name="line"/> logged in as <paramref name="login"/>; one
+    /// session per <paramref name="userId"/>. The token only bounds the wait for
+    /// the user's previous spot: once the spot starts it ends on its own timeouts.
+    /// </summary>
+    Task<ClusterSendResult> SendAsync(string userId, string login, string line, CancellationToken cancellationToken);
 }
 
 public enum ClusterSendStatus
@@ -14,7 +19,7 @@ public enum ClusterSendStatus
     /// <summary>The node could not be reached or did not take the login in time.</summary>
     Unavailable,
 
-    /// <summary>Too many sessions open: no new one is opened now.</summary>
+    /// <summary>The server is full: no session can be opened now, or too many spots for the whole server.</summary>
     Busy,
 }
 

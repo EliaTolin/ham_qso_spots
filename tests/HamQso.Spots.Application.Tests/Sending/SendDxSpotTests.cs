@@ -17,7 +17,9 @@ public class SendDxSpotTests
     private readonly RecordingLogger logger = new();
     private readonly SendDxSpot send;
 
-    public SendDxSpotTests() => send = new SendDxSpot(profiles, cluster, new SpotRateLimiter(new FakeTimeProvider()), logger);
+    private readonly FakeTimeProvider time = new();
+
+    public SendDxSpotTests() => send = new SendDxSpot(profiles, cluster, new SpotRateLimiter(time), logger);
 
     private Task<SendDxSpotResult> Send(string? line = Line, int? ssid = 7, string user = User) => send.ExecuteAsync(user, line, ssid, TestContext.Current.CancellationToken);
 
@@ -85,13 +87,39 @@ public class SendDxSpotTests
     }
 
     [Fact]
-    public async Task Sixty_spots_a_minute_for_the_whole_server_then_busy_before_the_profile_is_read()
+    public async Task Sixty_spots_a_minute_for_the_whole_server_then_busy_and_the_user_keeps_their_attempt()
     {
         for (var i = 0; i < 60; i++) await send.ExecuteAsync($"user-{i}", Line, 7, TestContext.Current.CancellationToken);
-        var reads = profiles.Reads;
 
         Assert.Equal(SendDxSpotOutcome.Busy, (await Send()).Outcome);
-        Assert.Equal(reads, profiles.Reads);
+        Assert.Equal(60, cluster.Sent.Count);
+
+        // The server stopped it, not the user: still 3 spots for them once the minute is over.
+        time.Advance(TimeSpan.FromMinutes(1));
+        for (var i = 0; i < 3; i++) Assert.Equal(SendDxSpotOutcome.Sent, (await Send()).Outcome);
+    }
+
+    [Fact]
+    public async Task Failed_or_refused_attempts_do_not_use_the_server_budget()
+    {
+        profiles.Callsign = null;
+        for (var i = 0; i < 100; i++)
+        {
+            await send.ExecuteAsync($"user-{i}", Line, 7, TestContext.Current.CancellationToken);
+            await send.ExecuteAsync($"user-{i}", "SH/DX", 7, TestContext.Current.CancellationToken);
+            await send.ExecuteAsync($"user-{i}", Line, 0, TestContext.Current.CancellationToken);
+        }
+        profiles.Callsign = "IU4VRB";
+
+        Assert.Equal(SendDxSpotOutcome.Sent, (await Send()).Outcome);
+    }
+
+    [Fact]
+    public async Task A_login_another_user_has_open_is_login_in_use()
+    {
+        cluster.Failure = ClusterSendResult.LoginInUse;
+
+        Assert.Equal(SendDxSpotOutcome.LoginInUse, (await Send()).Outcome);
     }
 
     [Fact]
@@ -132,7 +160,7 @@ public class SendDxSpotTests
         public Task<string?> CallsignAsync(string userId, CancellationToken cancellationToken)
         {
             Reads++;
-            return Task.FromResult(userId is User or OtherUser ? Callsign : null);
+            return Task.FromResult(Callsign);
         }
     }
 

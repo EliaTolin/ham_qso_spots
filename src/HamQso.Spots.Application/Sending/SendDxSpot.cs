@@ -13,6 +13,7 @@ public enum SendDxSpotOutcome
     NoCallsign,
     NodeUnavailable,
     Busy,
+    LoginInUse,
 }
 
 public sealed record SendDxSpotResult(SendDxSpotOutcome Outcome, IReadOnlyList<string> Replies, TimeSpan? RetryAfter = null)
@@ -44,13 +45,17 @@ public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender c
     {
         if (!DxSpotLine.IsValid(line)) return (SendDxSpotResult.Failed(SendDxSpotOutcome.InvalidLine), null);
         if (!ClusterLogin.IsValidSsid(ssid)) return (SendDxSpotResult.Failed(SendDxSpotOutcome.InvalidSsid), null);
-        var (decision, wait) = limiter.TryAcquire(userId);
-        if (decision == RateDecision.UserLimited) return (SendDxSpotResult.Failed(SendDxSpotOutcome.RateLimited, wait), null);
-        if (decision == RateDecision.ServerBusy) return (SendDxSpotResult.Failed(SendDxSpotOutcome.Busy), null);
+        if (limiter.TryAcquireUser(userId) is { } wait) return (SendDxSpotResult.Failed(SendDxSpotOutcome.RateLimited, wait), null);
 
         // Checked again here, although the database checks it too: nothing else is ever a login.
         var callsign = ClusterLogin.NormalizeCallsign(await profiles.CallsignAsync(userId, cancellationToken).ConfigureAwait(false));
         if (callsign is null) return (SendDxSpotResult.Failed(SendDxSpotOutcome.NoCallsign), null);
+        // Last: only spots that passed every other check use the server budget.
+        if (limiter.TryAcquireServer() is not null)
+        {
+            limiter.RefundUser(userId);
+            return (SendDxSpotResult.Failed(SendDxSpotOutcome.Busy), null);
+        }
 
         var login = ClusterLogin.Create(callsign, ssid!.Value);
         var sent = await cluster.SendAsync(userId, login, line!, cancellationToken).ConfigureAwait(false);
@@ -58,6 +63,7 @@ public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender c
         {
             ClusterSendStatus.Sent => new SendDxSpotResult(SendDxSpotOutcome.Sent, sent.Replies),
             ClusterSendStatus.Busy => SendDxSpotResult.Failed(SendDxSpotOutcome.Busy),
+            ClusterSendStatus.LoginInUse => SendDxSpotResult.Failed(SendDxSpotOutcome.LoginInUse),
             _ => SendDxSpotResult.Failed(SendDxSpotOutcome.NodeUnavailable),
         }, login);
     }

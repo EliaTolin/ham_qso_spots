@@ -80,6 +80,45 @@ public sealed class TelnetClusterSenderTests
     }
 
     [Fact]
+    public async Task A_login_open_by_another_user_is_in_use_until_that_session_closes()
+    {
+        await using var node = new FakeDxNode();
+        await using var sender = Sender(node.Port, idle: TimeSpan.FromMilliseconds(800));
+
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+        var other = await sender.SendAsync(UserB, "IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct);
+
+        Assert.Equal(ClusterSendStatus.LoginInUse, other.Status);
+        Assert.Equal(["IU4VRB-7", Line], Assert.Single(node.Connections).Lines);
+
+        await WaitUntil(() => sender.OpenLogins.Count == 0);
+        Assert.Equal(ClusterSendStatus.Sent, (await sender.SendAsync(UserB, "IU4VRB-7", "DX 7074.0 K1ABC FT8", Ct)).Status);
+    }
+
+    [Fact]
+    public async Task A_user_moving_to_another_SSID_frees_the_old_login()
+    {
+        await using var node = new FakeDxNode();
+        await using var sender = Sender(node.Port);
+
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+        await sender.SendAsync(UserA, "IU4VRB-12", Line, Ct);
+
+        Assert.Equal(ClusterSendStatus.Sent, (await sender.SendAsync(UserB, "IU4VRB-7", Line, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task A_failed_login_frees_the_login_for_others()
+    {
+        await using var node = new FakeDxNode(closeAfterLogin: true);
+        await using var sender = Sender(node.Port);
+
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+
+        Assert.Equal(ClusterSendStatus.Unavailable, (await sender.SendAsync(UserB, "IU4VRB-7", Line, Ct)).Status);
+    }
+
+    [Fact]
     public async Task The_session_closes_after_the_idle_time_and_the_next_spot_opens_a_new_one()
     {
         await using var node = new FakeDxNode();

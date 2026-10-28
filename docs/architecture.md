@@ -97,13 +97,24 @@ The full contract for clients is in [protocol.md](protocol.md).
 A browser cannot open telnet, so the web app sends its DX spots through the server (`POST /v1/dx/spots`, contract in [protocol.md](protocol.md)); the phones keep their own telnet. `SendDxSpot`:
 
 1. checks the line (`DxSpotLine`: one `DX <kHz.d> <call> <text>` line of printable ASCII, nothing else) and the SSID (1–99);
-2. counts the attempt (`SpotRateLimiter`, in memory: a restart forgets the counts): 3 a minute and 20 an hour per user, 60 a minute for the whole server. No limit per callsign: profile callsigns are not verified, so it would let anyone use up someone else's;
+2. counts the attempt for the user (`SpotRateLimiter`, in memory: a restart forgets the counts): 3 a minute and 20 an hour;
 3. reads the callsign of the user's profile (`SupabaseProfileReader`: PostgREST `profiles?id=eq.<sub>&select=callsign` with the secret key, since profiles are private) and checks it again against the profile pattern (`ClusterLogin`);
-4. sends it as `<CALLSIGN>-<ssid>` (`TelnetClusterSender`), logging user, login, line and outcome.
+4. counts the spot against the server budget, 60 a minute for all users: last, so only spots that passed every check use it (failed or refused attempts cannot starve everyone); when it is full the user gets the attempt back;
+5. sends it as `<CALLSIGN>-<ssid>` (`TelnetClusterSender`), logging user, login, line and outcome.
 
 Anonymous users (`is_anonymous` in the token) and reader projects are refused by the endpoint before all this. The telnet session refuses to write any line with a control character or a byte above `0x7E` (last guard against a second command or telnet bytes).
 
-`TelnetClusterSender` mirrors the app's `OnDemandTelnetSender`: one session per user (`ClusterSendSession`, login dialogue in `ClusterSendDialogue`: the prompt or a 4 s fallback, an empty password if asked, ready after 2 s of silence), reused by the next spots of that user, replaced when the login changes (another SSID), closed 3 minutes after the last spot; spots of one user go one at a time. At most 50 sessions: a new one beyond them closes the least recently used session that is not sending, and is refused (`busy`) only when all are sending. Once a spot has started it follows its own timeouts (15 s login, 2 s reply window), not the HTTP request, and an open session always gets its idle timer, whatever happened. The node's lines in the 2 s after the command are returned, spots excluded. The confirmation is the echo in the spot list, as on the phone. Node and timings are configuration (`DxSend`), default DXFun as the app.
+`TelnetClusterSender` mirrors the app's `OnDemandTelnetSender`: one session per user (`ClusterSendSession`, login dialogue in `ClusterSendDialogue`: the prompt or a 4 s fallback, an empty password if asked, ready after 2 s of silence), reused by the next spots of that user, replaced when the login changes (another SSID), closed 3 minutes after the last spot; a login is held by one user at a time (`409 login_in_use` for another user until that session closes); spots of one user go one at a time. At most 50 sessions: a new one beyond them closes the least recently used session that is not sending, and is refused (`busy`) only when all are sending. Once a spot has started it follows its own timeouts (15 s login, 2 s reply window), not the HTTP request, and an open session always gets its idle timer, whatever happened. The node's lines in the 2 s after the command are returned, spots excluded. The confirmation is the echo in the spot list, as on the phone. Node and timings are configuration (`DxSend`), default DXFun as the app.
+
+### Accepted trade-off: the callsign is not verified
+
+The login is the callsign of the user's profile, and nobody checks that the callsign belongs to the user: a signed-in user can write any callsign in the profile and spot with it. This is accepted (Elia, F58): the phone app already logs in to the cluster by telnet with whatever callsign the user typed, as every cluster client does, and DX cluster nodes do not verify callsigns either. The server does not make it worse, and limits what one account can do with it:
+
+- spots only from signed-in accounts (no anonymous users), the callsign checked against the profile pattern, one DX line only;
+- 3 spots a minute and 20 an hour per account, 60 a minute for the server, every send logged with the user id (the account behind a misuse can be found and removed);
+- one session per account and one account per login at a time.
+
+There is **no limit per callsign** on purpose: since callsigns are not verified, a limit per callsign would let anyone use up a real station's budget by writing its callsign in their profile (griefing). A per-callsign rule can come back only together with callsign verification.
 
 ## Access control
 

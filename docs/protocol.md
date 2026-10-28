@@ -244,6 +244,7 @@ Content-Type: application/json
 What the server does:
 
 - Logs in to the node (DXFun, `dxfun.com:8000`, as the app) as **`<callsign of the user's profile>-<ssid>`** (`IU4VRB-7`). The callsign is read from the user's Supabase profile (`public.profiles.callsign`, by the token's user id), never from the request, and checked again against the profile pattern (`^[A-Z0-9]{1,8}(/[A-Z0-9]{1,8}){0,2}$`); a callsign that does not match counts as missing (`422`).
+- A login belongs to **one user at a time**: while another user's session has it (until 3 minutes after that user's last spot), the answer is `409 login_in_use`.
 - Keeps **one session per user**: the first spot opens it (connection, login, welcome; at most 15 s), the next ones reuse it, and it closes **3 minutes after the last spot**, like the app. A spot with another SSID closes the user's session and opens one with the new login. An empty password is sent if the node asks for one, as the app.
 - At most **50 sessions** open at once on the server: a new one beyond that closes the session used least recently that is not sending at that moment; only when all 50 are sending the answer is `503 busy`.
 - Once the spot has started (login and send), it finishes even if the client drops the request: the session then closes on its idle time as usual.
@@ -268,9 +269,10 @@ Answer `200`:
 | `422` | `{"error": "no_callsign"}` | The user's profile has no callsign, or one outside the profile pattern (or the user has no profile): ask the user to set it |
 | `429` | `{"error": "rate_limited", "retry_after_s": 42}` + header `Retry-After: 42` | More than **3 spots a minute** or **20 an hour** for this user (sliding windows). Every request with a valid line and SSID counts, also one that then ends in `422` or `502`. There is no limit per callsign: profile callsigns are not verified, so anyone could use up someone else's |
 | `502` | `{"error": "node_unavailable"}` | The node cannot be reached, or the login is not over within 15 s, or the connection drops while sending |
-| `503` | `{"error": "busy"}` | The server is full: more than **60 spots a minute from all users together**, or 50 sessions open and all sending at that moment. Try again later (no `Retry-After`) |
+| `409` | `{"error": "login_in_use"}` | Another user has a session open with the same login (`<callsign>-<ssid>`): try another SSID, or later |
+| `503` | `{"error": "busy"}` | The server is full: more than **60 spots a minute from all users together** (only spots that passed every other check count), or 50 sessions open and all sending at that moment. Try again later (no `Retry-After`); it does not count against the user's own limit |
 
-The order of the checks: token (401), reader or anonymous (403), line and SSID (400), user limit (429), server limit (503), profile (422), sessions (503), node (502). A request refused by the server limit does not count for the user. Every request that gets past the token is logged on the server (user id, login, line, outcome).
+The order of the checks: token (401), reader or anonymous (403), line and SSID (400), user limit (429), profile (422), server limit (503, checked last so failed or refused attempts never use it), login of another user (409), sessions (503), node (502). Every request that gets past the token is logged on the server (user id, login, line, outcome).
 
 ## Limits and attribution
 

@@ -10,7 +10,7 @@ public class SpotRateLimiterTests
 
     public SpotRateLimiterTests() => limiter = new SpotRateLimiter(time);
 
-    private bool Allowed(string user) => limiter.TryAcquire(user).Decision == RateDecision.Allowed;
+    private bool Allowed(string user) => limiter.TryAcquireUser(user) is null;
 
     [Fact]
     public void Three_spots_a_minute_pass_the_fourth_waits_until_the_first_leaves_the_minute()
@@ -20,7 +20,7 @@ public class SpotRateLimiterTests
         Assert.True(Allowed("u"));
         Assert.True(Allowed("u"));
 
-        Assert.Equal((RateDecision.UserLimited, TimeSpan.FromSeconds(50)), limiter.TryAcquire("u"));
+        Assert.Equal(TimeSpan.FromSeconds(50), limiter.TryAcquireUser("u"));
 
         time.Advance(TimeSpan.FromSeconds(50));
         Assert.True(Allowed("u"));
@@ -36,7 +36,7 @@ public class SpotRateLimiterTests
         }
 
         // 20 minutes went by: the first spot leaves the hour in 40.
-        Assert.Equal((RateDecision.UserLimited, TimeSpan.FromMinutes(40)), limiter.TryAcquire("u"));
+        Assert.Equal(TimeSpan.FromMinutes(40), limiter.TryAcquireUser("u"));
         time.Advance(TimeSpan.FromMinutes(40));
         Assert.True(Allowed("u"));
     }
@@ -44,7 +44,7 @@ public class SpotRateLimiterTests
     [Fact]
     public void A_refused_attempt_does_not_count()
     {
-        for (var i = 0; i < 3; i++) limiter.TryAcquire("u");
+        for (var i = 0; i < 3; i++) limiter.TryAcquireUser("u");
         for (var i = 0; i < 10; i++) Assert.False(Allowed("u"));
 
         time.Advance(TimeSpan.FromMinutes(1));
@@ -55,7 +55,7 @@ public class SpotRateLimiterTests
     [Fact]
     public void Every_user_has_their_own_limit()
     {
-        for (var i = 0; i < 3; i++) limiter.TryAcquire("u");
+        for (var i = 0; i < 3; i++) limiter.TryAcquireUser("u");
 
         Assert.False(Allowed("u"));
         Assert.True(Allowed("v"));
@@ -64,28 +64,37 @@ public class SpotRateLimiterTests
     [Fact]
     public void Sixty_spots_a_minute_for_the_whole_server_then_busy_for_everyone()
     {
-        for (var i = 0; i < 60; i++) Assert.True(Allowed($"user-{i}"));
+        for (var i = 0; i < 60; i++) Assert.Null(limiter.TryAcquireServer());
 
-        Assert.Equal(RateDecision.ServerBusy, limiter.TryAcquire("someone-new").Decision);
+        Assert.Equal(TimeSpan.FromMinutes(1), limiter.TryAcquireServer());
 
         time.Advance(TimeSpan.FromMinutes(1));
-        Assert.True(Allowed("someone-new"));
+        Assert.Null(limiter.TryAcquireServer());
     }
 
     [Fact]
-    public void A_spot_refused_because_the_server_is_busy_does_not_count_for_the_user()
+    public void Users_do_not_use_the_server_budget_only_spots_that_go_out_do()
     {
-        for (var i = 0; i < 60; i++) limiter.TryAcquire($"user-{i}");
-        for (var i = 0; i < 5; i++) limiter.TryAcquire("u");
-        time.Advance(TimeSpan.FromMinutes(1));
+        for (var i = 0; i < 200; i++) limiter.TryAcquireUser($"user-{i % 10}");
 
-        for (var i = 0; i < 3; i++) Assert.True(Allowed("u"));
+        Assert.Null(limiter.TryAcquireServer());
+    }
+
+    [Fact]
+    public void A_refunded_attempt_does_not_count_for_the_user()
+    {
+        for (var i = 0; i < 3; i++) limiter.TryAcquireUser("u");
+        limiter.RefundUser("u");
+
+        Assert.True(Allowed("u"));
+        Assert.False(Allowed("u"));
+        limiter.RefundUser("nobody");
     }
 
     [Fact]
     public void Users_silent_for_an_hour_are_forgotten_and_start_again()
     {
-        for (var i = 0; i < 3; i++) limiter.TryAcquire("u");
+        for (var i = 0; i < 3; i++) limiter.TryAcquireUser("u");
         time.Advance(TimeSpan.FromHours(2));
 
         for (var i = 0; i < 3; i++) Assert.True(Allowed("u"));

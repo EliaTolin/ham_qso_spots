@@ -1,22 +1,12 @@
 namespace HamQso.Spots.Application.Sending;
 
-public enum RateDecision
-{
-    Allowed,
-
-    /// <summary>The user is over <see cref="SpotRateLimiter.UserLimits"/>.</summary>
-    UserLimited,
-
-    /// <summary>The whole server is over <see cref="SpotRateLimiter.ServerLimits"/>.</summary>
-    ServerBusy,
-}
-
 /// <summary>
 /// How many spots go out, over sliding windows: per user 3 a minute and 20 an
 /// hour, for the whole server 60 a minute (so many users together cannot flood
-/// the node). Every attempt that gets this far counts, sent or not, so a user
-/// cannot hammer the node or Supabase by failing; an attempt refused here does
-/// not count. Not per callsign: profile callsigns are not verified, so anyone
+/// the node). Every attempt of a user that gets this far counts, sent or not,
+/// so a user cannot hammer the node or Supabase by failing; an attempt refused
+/// here does not count. The server budget counts only spots that passed every
+/// other check, so failed or refused attempts cannot use it up for everyone. Not per callsign: profile callsigns are not verified, so anyone
 /// could use up someone else's.
 /// </summary>
 public sealed class SpotRateLimiter(TimeProvider time)
@@ -40,8 +30,8 @@ public sealed class SpotRateLimiter(TimeProvider time)
     private readonly Lock gate = new();
     private DateTimeOffset lastSweep = DateTimeOffset.MinValue;
 
-    /// <summary>Counts the attempt when allowed; otherwise why not and, for the user limit, how long to wait.</summary>
-    public (RateDecision Decision, TimeSpan? RetryAfter) TryAcquire(string userId)
+    /// <summary>Counts the attempt of the user when allowed (null); otherwise how long to wait.</summary>
+    public TimeSpan? TryAcquireUser(string userId)
     {
         var now = time.GetUtcNow();
         lock (gate)
@@ -49,12 +39,35 @@ public sealed class SpotRateLimiter(TimeProvider time)
             Sweep(now);
             if (!attempts.TryGetValue(userId, out var times)) attempts[userId] = times = [];
             times.RemoveAll(t => t <= now - LongestUserWindow);
-            if (RetryAfter(UserLimits, times, now) is { } wait) return (RateDecision.UserLimited, wait);
+            var wait = RetryAfter(UserLimits, times, now);
+            if (wait is null) times.Add(now);
+            return wait;
+        }
+    }
+
+    /// <summary>
+    /// Counts a spot that is about to go out against the server budget when it
+    /// fits (null); otherwise how long until it does. Asked last, only for spots
+    /// that passed every other check, so refused attempts never use the budget.
+    /// </summary>
+    public TimeSpan? TryAcquireServer()
+    {
+        var now = time.GetUtcNow();
+        lock (gate)
+        {
             server.RemoveAll(t => t <= now - LongestServerWindow);
-            if (RetryAfter(ServerLimits, server, now) is { } busy) return (RateDecision.ServerBusy, busy);
-            times.Add(now);
-            server.Add(now);
-            return (RateDecision.Allowed, null);
+            var wait = RetryAfter(ServerLimits, server, now);
+            if (wait is null) server.Add(now);
+            return wait;
+        }
+    }
+
+    /// <summary>Gives the user back their last attempt: the server, not the user, stopped it.</summary>
+    public void RefundUser(string userId)
+    {
+        lock (gate)
+        {
+            if (attempts.TryGetValue(userId, out var times) && times.Count > 0) times.RemoveAt(times.Count - 1);
         }
     }
 

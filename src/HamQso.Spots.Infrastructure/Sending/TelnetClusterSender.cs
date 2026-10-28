@@ -10,8 +10,10 @@ namespace HamQso.Spots.Infrastructure.Sending;
 /// Sends users' spots to the node, like the app's OnDemandTelnetSender: one
 /// session per user, opened at the first spot, reused by the next ones and
 /// closed <see cref="DxSendOptions.IdleTimeout"/> after the last; a spot with
-/// another login (another SSID) replaces the user's session. Spots of the same
-/// user go one at a time; different users do not wait for each other.
+/// another login (another SSID) replaces the user's session. A login belongs to
+/// one user at a time: while another user's session has it, the spot is
+/// <see cref="ClusterSendResult.LoginInUse"/>. Spots of the same user go one at
+/// a time; different users do not wait for each other.
 /// At most <see cref="DxSendOptions.MaxSessions"/> sessions at once: a new one
 /// beyond them closes the least recently used idle session, and is
 /// <see cref="ClusterSendResult.Busy"/> only when every session is sending.
@@ -22,6 +24,9 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
 {
     /// <summary>One per user ever seen (a few bytes each); the session inside comes and goes.</summary>
     private readonly ConcurrentDictionary<string, Slot> slots = new(StringComparer.Ordinal);
+
+    /// <summary>Login → the user whose session has it (open or opening). Taken atomically, released at close.</summary>
+    private readonly ConcurrentDictionary<string, string> owners = new(StringComparer.Ordinal);
 
     /// <summary>One decision at a time about who may open a session.</summary>
     private readonly SemaphoreSlim capacity = new(1, 1);
@@ -35,7 +40,7 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
     public async Task<ClusterSendResult> SendAsync(string userId, string login, string line, CancellationToken cancellationToken)
     {
         var o = options.Value;
-        var slot = slots.GetOrAdd(userId, _ => new Slot());
+        var slot = slots.GetOrAdd(userId, id => new Slot(id));
         // The request may give up while waiting for the user's previous spot; after this, nothing follows its token.
         await slot.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -43,8 +48,15 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
             if (slot.Session is not { IsOpen: true } || slot.Session.Login != login)
             {
                 await CloseAsync(slot).ConfigureAwait(false);
+                if (!owners.TryAdd(login, userId))
+                {
+                    LogInUse(logger, login, userId);
+                    return ClusterSendResult.LoginInUse;
+                }
+                slot.Login = login;
                 if (!await ReserveAsync(slot).ConfigureAwait(false))
                 {
+                    ReleaseLogin(slot);
                     LogBusy(logger, o.MaxSessions, login);
                     return ClusterSendResult.Busy;
                 }
@@ -55,6 +67,7 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
                 catch (Exception e)
                 {
                     Interlocked.Decrement(ref sessions);
+                    ReleaseLogin(slot);
                     if (!IsNodeFailure(e)) throw;
                     LogUnavailable(logger, e, o.Host, login);
                     return ClusterSendResult.Unavailable;
@@ -166,14 +179,27 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
     {
         slot.Idle?.Dispose();
         slot.Idle = null;
-        if (slot.Session is null) return;
-        await slot.Session.DisposeAsync().ConfigureAwait(false);
-        slot.Session = null;
-        Interlocked.Decrement(ref sessions);
+        if (slot.Session is not null)
+        {
+            await slot.Session.DisposeAsync().ConfigureAwait(false);
+            slot.Session = null;
+            Interlocked.Decrement(ref sessions);
+        }
+        ReleaseLogin(slot);
+    }
+
+    /// <summary>Frees the slot's login for any user (only if this user still holds it). Gate held.</summary>
+    private void ReleaseLogin(Slot slot)
+    {
+        if (slot.Login is { } login) owners.TryRemove(new KeyValuePair<string, string>(login, slot.UserId));
+        slot.Login = null;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "DX sending busy: {Max} sessions open and all sending, {Login} refused")]
     private static partial void LogBusy(ILogger logger, int max, string login);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "DX login {Login} in use by another user, refused for user {UserId}")]
+    private static partial void LogInUse(ILogger logger, string login, string userId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "DX sending full: session of {Login} closed for a new one")]
     private static partial void LogEvicted(ILogger logger, string login);
@@ -181,9 +207,14 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
     [LoggerMessage(Level = LogLevel.Warning, Message = "DX node {Host} unavailable for {Login}")]
     private static partial void LogUnavailable(ILogger logger, Exception e, string host, string login);
 
-    private sealed class Slot
+    private sealed class Slot(string userId)
     {
+        public string UserId { get; } = userId;
+
         public SemaphoreSlim Gate { get; } = new(1, 1);
+
+        /// <summary>The login this user holds in <see cref="owners"/> (from reservation to close).</summary>
+        public string? Login { get; set; }
 
         public ClusterSendSession? Session { get; set; }
 

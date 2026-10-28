@@ -15,10 +15,14 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
 {
     private const string Issuer = "https://example.supabase.co/auth/v1";
 
+    /// <summary>A reader project (HamQRG): its users may read the spots too.</summary>
+    private const string ReaderIssuer = "https://reader.supabase.co/auth/v1";
+
     private static readonly DateTimeOffset Now = new(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
 
     private readonly ECDsa projectKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private readonly ECDsa otherKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+    private readonly ECDsa readerKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private readonly FakeTimeProvider time = new(Now);
     private readonly JwksHandler jwks;
     private readonly HttpClient http;
@@ -26,9 +30,16 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
 
     public SupabaseJwtValidatorTests()
     {
-        jwks = new JwksHandler(Jwks(projectKey, "key-1"));
+        jwks = new JwksHandler(Jwks(projectKey, "key-1"), Jwks(readerKey, "reader-1"));
         http = new HttpClient(jwks);
-        validator = new SupabaseJwtValidator(Options.Create(new SupabaseOptions { Url = new Uri("https://example.supabase.co") }), http, time);
+        validator = new SupabaseJwtValidator(
+            Options.Create(new SupabaseOptions
+            {
+                Url = new Uri("https://example.supabase.co"),
+                ReaderUrls = [new Uri("https://reader.supabase.co")],
+            }),
+            http,
+            time);
     }
 
     public void Dispose()
@@ -37,6 +48,7 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         http.Dispose();
         projectKey.Dispose();
         otherKey.Dispose();
+        readerKey.Dispose();
     }
 
     private Task<bool> Check(string token) => validator.IsValidAsync(token, TestContext.Current.CancellationToken);
@@ -56,6 +68,36 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
     [Fact]
     public async Task A_token_of_another_project_is_refused() =>
         Assert.False(await Check(Token(projectKey, "key-1", issuer: "https://other.supabase.co/auth/v1")));
+
+    [Fact]
+    public async Task A_token_of_a_reader_project_is_accepted_with_its_own_keys() =>
+        Assert.True(await Check(Token(readerKey, "reader-1", issuer: ReaderIssuer)));
+
+    [Fact]
+    public async Task A_reader_token_signed_with_the_HamQSO_key_is_refused() =>
+        Assert.False(await Check(Token(projectKey, "key-1", issuer: ReaderIssuer)));
+
+    [Fact]
+    public async Task A_HamQSO_token_signed_with_the_reader_key_is_refused() =>
+        Assert.False(await Check(Token(readerKey, "reader-1")));
+
+    [Fact]
+    public async Task A_token_of_an_unknown_project_fetches_no_keys()
+    {
+        Assert.False(await Check(Token(otherKey, "key-1", issuer: "https://attacker.example/auth/v1")));
+
+        Assert.Equal(0, jwks.Requests);
+    }
+
+    [Fact]
+    public async Task Forged_tokens_on_one_project_do_not_hold_back_the_rotation_of_the_other()
+    {
+        Assert.True(await Check(Token(projectKey, "key-1")));
+        for (var i = 0; i < 10; i++) Assert.False(await Check(Token(otherKey, $"forged-{i}")));
+        jwks.ReaderBody = Jwks(otherKey, "reader-2");
+
+        Assert.True(await Check(Token(otherKey, "reader-2", issuer: ReaderIssuer)));
+    }
 
     [Fact]
     public async Task An_anonymous_key_token_is_refused() =>
@@ -130,9 +172,11 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         });
     }
 
-    private sealed class JwksHandler(string body) : HttpMessageHandler
+    private sealed class JwksHandler(string body, string readerBody) : HttpMessageHandler
     {
         public string Body { get; set; } = body;
+
+        public string ReaderBody { get; set; } = readerBody;
 
         public int Requests { get; private set; }
 
@@ -140,11 +184,12 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Assert.Equal("https://example.supabase.co/auth/v1/.well-known/jwks.json", request.RequestUri!.ToString());
+            var url = request.RequestUri!.ToString();
+            Assert.Contains(url, new[] { $"{Issuer}/.well-known/jwks.json", $"{ReaderIssuer}/.well-known/jwks.json" });
             Requests++;
             return Task.FromResult(Fail
                 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Body) });
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(url.StartsWith(Issuer, StringComparison.Ordinal) ? Body : ReaderBody) });
         }
     }
 }

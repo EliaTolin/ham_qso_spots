@@ -13,6 +13,7 @@ HamQTH, DX Summit ─────►│   sources → IngestSpots → Postgres (
 POTA, SOTA, WWFF ──────►│                        └→ Mosquitto (MQTT news) ◄── mosquitto-go-auth ── /mqtt/*    │
                         │   GET /v1/spots (lists)  POST /v1/dx/spots (send, telnet as the user)  GET /health  │
                         │   /v1/proxy/{service} (web app → QRZ, eQSL, SOTA… without CORS)                     │
+                        │   GET /v1/rbn/{call} (SSE, coverage test; one shared RBN telnet)                    │
                         └──────────┬──────────────────────────────┬───────────────────────────────────────────┘
                                    │ alert_spots (secret key)     │ wss://spot.hamqso.app/mqtt, https://spot.hamqso.app/v1/spots
                                    ▼                              ▼
@@ -22,7 +23,7 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 
 | Container | Image | Role |
 |---|---|---|
-| `server` | this repo (`Dockerfile`) | sources, ingestion, archive, publishing, REST API, spot sending and CORS proxy for the web app, broker auth backend, health |
+| `server` | this repo (`Dockerfile`) | sources, ingestion, archive, publishing, REST API, spot sending, CORS proxy and RBN stream for the web app, broker auth backend, health |
 | `postgres` | `postgres:17-alpine` | the archive (`dx_spots`), 7 days, volume `postgres-data` |
 | `mosquitto` | `deploy/mosquitto/Dockerfile` (`iegomez/mosquitto-go-auth` + config) | MQTT broker for the apps; no persistence |
 
@@ -30,10 +31,10 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 
 | Project | Contains | Depends on |
 |---|---|---|
-| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, duplicate rule, enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
-| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`), use cases (`IngestSpots`, `GetSpots`, `SendDxSpot`, `ForwardToUpstream`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
-| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`), proxy allowlist and forwarding (`Proxy/`) | Application |
-| `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/dx/spots`, `/v1/proxy/*`, `/mqtt/*`) | Application, Infrastructure |
+| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, base callsign (shared cases with the app and the backend), duplicate rule, enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
+| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`, `IRbnFeed`), use cases (`IngestSpots`, `GetSpots`, `SendDxSpot`, `ForwardToUpstream`, `WatchRbn`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
+| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`), proxy allowlist and forwarding (`Proxy/`), shared RBN telnet feed (`Rbn/`) | Application |
+| `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/dx/spots`, `/v1/proxy/*`, `/v1/rbn/*`, `/mqtt/*`) | Application, Infrastructure |
 
 ## Sources
 
@@ -117,6 +118,15 @@ The login is the callsign of the user's profile, and nobody checks that the call
 
 There is **no limit per callsign** on purpose: since callsigns are not verified, a limit per callsign would let anyone use up a real station's budget by writing its callsign in their profile (griefing). A per-callsign rule can come back only together with callsign verification.
 
+## The RBN stream for the coverage test
+
+The coverage test (Pro) listens to the Reverse Beacon Network for the user's station; the phone opens `telnet.reversebeacon.net:7000` itself, the web app cannot (F58 decision 9). `GET /v1/rbn/{callsign}` streams the matching lines as Server-Sent Events ([protocol.md](protocol.md#stream-get-v1rbncallsign-the-coverage-test)).
+
+- `RbnTelnetFeed`: **one** telnet connection for every listener of the server, logged in with the server's callsign (`Rbn:Callsign`, the same `N0CALL-87` as the cluster sources), opened by the first listener, closed 1 minute after the last one leaves, reopened with exponential backoff (up to 2 min) when it drops or is silent for 2 minutes. Telnet decoding, line splitting and the login prompt are the ones of the cluster sources. Every spot line goes to every listener through its own bounded queue (1000 lines, oldest dropped), so a slow browser never slows the others. RBN sends the whole world, several lines a second: the feed does not filter, the listeners do.
+- `WatchRbn`: keeps the lines whose base call equals the asked one (`Callsign.Base`, the app's `baseCallsign`, tested on the shared `base_callsign_cases.json`), at most 2 streams per user.
+- The endpoint: signed-in users only (the test needs a callsign; anonymous tokens are free to get), token also in `?access_token=` for `EventSource` (never logged: same rule as the proxy), a `: ping` every 15 s, at most 15 minutes per stream. Logged: user, callsign, number of lines, why it ended.
+- Not in `/health`: the connection exists only while someone listens.
+
 ## The proxy: nothing kept, nothing logged
 
 On the phone the app talks to QRZ Logbook, eQSL, HRDLog, SOTA (SSO, SOTAwatch, sotadata), hamqsl.com and country-files.com directly; the credentials (QRZ API key, eQSL and HRDLog passwords, SOTA token) stay on the device. Those services send no CORS headers, so in a browser the web app must go through the server (F58 decision 16): `ANY /v1/proxy/{service}/{path}`, contract in [protocol.md](protocol.md#rest-the-proxy-v1proxy).
@@ -141,7 +151,7 @@ Anyone can get an anonymous Supabase token, so for the proxy the token proves li
 - **Sending spots**: only tokens of the HamQSO project of signed-in users (`TokenUser.IsReader` and `IsAnonymous` false); the login is always the profile's callsign, never one from the request.
 - **Tokens** (`SupabaseJwtValidator`): ES256 signature checked with the public keys (JWKS) of the project that issued the token, issuer `https://<project>.supabase.co/auth/v1`, audience `authenticated`, expiry. Accepted projects: HamQSO (`Supabase:Url`) and the readers (`Supabase:ReaderUrls`, today HamQRG `dhmzkhipxvxtbbchvquc`), which may only read like HamQSO users; the alerts stay on HamQSO. A token of any other issuer is refused before any request, so keys are fetched only from the configured projects. Keys cached 10 minutes per project; an unknown key id forces a refresh at most once a minute per project; if Supabase does not answer, the cached keys are kept (tokens signed with them are still accepted, others are refused).
 - **CORS**: the HTTP API answers browsers of the origins in `Cors:Origins` only (see [protocol.md](protocol.md#cors)); no cookies are used.
-- **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`, `/v1/dx/spots`, `/v1/proxy/*`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
+- **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`, `/v1/dx/spots`, `/v1/proxy/*`, `/v1/rbn/*`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
 - `/health` is public and shows only the state of each entry, never error messages (those go to the log).
 
 ## Health
@@ -162,3 +172,4 @@ Anyone can get an anonymous Supabase token, so for the proxy the token proves li
 | .NET 11 | Chosen to try .NET; RC "go-live" in October 2026, final in November 2026 |
 | Web spots through the server, with the profile's callsign | F58 decisions 5 and 13: a browser has no telnet; nobody spots with someone else's callsign; few spots per user; every send logged |
 | A pass-through proxy for services without CORS, nothing logged | F58 decision 16: everything of the app works on the web; the user's credentials of other services only pass through |
+| RBN for the web over SSE, one shared telnet | F58 decision 9: the coverage test on the web; SSE is plain HTTP (EventSource, CORS, Traefik) and one connection serves everyone, instead of one per user |

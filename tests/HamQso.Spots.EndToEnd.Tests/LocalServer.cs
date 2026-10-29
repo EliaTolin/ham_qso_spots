@@ -11,13 +11,16 @@ namespace HamQso.Spots.EndToEnd.Tests;
 /// <summary>
 /// The server run in the test process with the production Supabase project
 /// (real tokens, real profiles) and everything outward on loopback: the DX
-/// node (<see cref="DxNodePort"/>) and the proxied services (<see cref="Upstreams"/>).
+/// node (<see cref="DxNodePort"/>), the RBN (<see cref="RbnPort"/>) and the
+/// proxied services (<see cref="Upstreams"/>).
 /// No sources, archive or broker. The deployed server would reach the real
 /// cluster and the real services; these tests never do.
 /// </summary>
 public sealed class LocalServer : WebApplicationFactory<Program>
 {
     public int DxNodePort { get; init; } = 1;
+
+    public int RbnPort { get; init; } = 1;
 
     public Dictionary<string, Uri> Upstreams { get; } = new(StringComparer.Ordinal);
 
@@ -28,6 +31,8 @@ public sealed class LocalServer : WebApplicationFactory<Program>
         builder.UseSetting("Supabase:SecretKey", E2eSettings.SecretKey);
         builder.UseSetting("DxSend:Host", "127.0.0.1");
         builder.UseSetting("DxSend:Port", DxNodePort.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        builder.UseSetting("Rbn:Host", "127.0.0.1");
+        builder.UseSetting("Rbn:Port", RbnPort.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.ConfigureTestServices(s =>
         {
             s.RemoveAll<IHostedService>();

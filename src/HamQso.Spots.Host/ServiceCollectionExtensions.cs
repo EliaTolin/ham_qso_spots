@@ -3,6 +3,7 @@ using HamQso.Spots.Application.Dedup;
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
 using HamQso.Spots.Application.Proxy;
+using HamQso.Spots.Application.Rbn;
 using HamQso.Spots.Application.Reading;
 using HamQso.Spots.Application.Sending;
 using HamQso.Spots.Application.Ports;
@@ -12,6 +13,7 @@ using HamQso.Spots.Infrastructure.Mqtt;
 using HamQso.Spots.Infrastructure.Postgres;
 using HamQso.Spots.Infrastructure.Profiles;
 using HamQso.Spots.Infrastructure.Proxy;
+using HamQso.Spots.Infrastructure.Rbn;
 using HamQso.Spots.Infrastructure.Sending;
 using HamQso.Spots.Infrastructure.Sources;
 using HamQso.Spots.Infrastructure.Sources.Telnet;
@@ -70,6 +72,11 @@ public static class ServiceCollectionExtensions
             .RemoveAllLoggers();
         services.AddSingleton<ProxyRateLimiter>();
         services.AddTransient<ForwardToUpstream>();
+
+        services.AddOptions<RbnOptions>().BindConfiguration(RbnOptions.Section).ValidateDataAnnotations().ValidateOnStart();
+        services.AddSingleton<RbnTelnetFeed>();
+        services.AddSingleton<IRbnFeed>(sp => sp.GetRequiredService<RbnTelnetFeed>());
+        services.AddSingleton<WatchRbn>();
 
         services.AddSingleton(sp =>
         {

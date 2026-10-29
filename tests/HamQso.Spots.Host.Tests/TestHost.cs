@@ -43,6 +43,8 @@ public sealed class TestHost : WebApplicationFactory<Program>
 
     public FakeCluster Cluster { get; } = new();
 
+    public FakeRbnFeed Rbn { get; } = new();
+
     /// <summary>The proxy allowlist of the test (empty: no service).</summary>
     public Dictionary<string, Uri> Upstreams { get; } = new(StringComparer.Ordinal);
 
@@ -68,6 +70,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
             s.AddSingleton<ITokenValidator>(new FakeTokens());
             s.AddSingleton<IProfileReader>(Profiles);
             s.AddSingleton<IClusterSender>(Cluster);
+            s.AddSingleton<IRbnFeed>(Rbn);
             s.AddSingleton(new Infrastructure.Proxy.ProxyAllowlist(Upstreams));
             s.AddSingleton<IStartupFilter, LocalPortFilter>();
         });
@@ -155,6 +158,33 @@ public sealed class TestHost : WebApplicationFactory<Program>
         {
             LastFilter = filter;
             return Task.FromResult(new SpotPage(99, false, []));
+        }
+    }
+
+    /// <summary>The RBN without telnet: <see cref="Push"/> sends a line to everyone reading.</summary>
+    public sealed class FakeRbnFeed : IRbnFeed
+    {
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<System.Threading.Channels.Channel<RbnLine>, bool> readers = new();
+
+        public int Readers => readers.Count;
+
+        public void Push(RbnLine line)
+        {
+            foreach (var reader in readers.Keys) reader.Writer.TryWrite(line);
+        }
+
+        public async IAsyncEnumerable<RbnLine> ReadAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            var channel = System.Threading.Channels.Channel.CreateUnbounded<RbnLine>();
+            readers[channel] = true;
+            try
+            {
+                await foreach (var line in channel.Reader.ReadAllAsync(cancellationToken)) yield return line;
+            }
+            finally
+            {
+                readers.TryRemove(channel, out _);
+            }
         }
     }
 

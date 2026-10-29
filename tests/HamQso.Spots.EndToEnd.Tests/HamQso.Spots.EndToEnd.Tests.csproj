@@ -3,8 +3,8 @@
     End-to-end tests against the deployed server (spot.hamqso.app) and Supabase.
     Not in HamQso.Spots.slnx: they need production keys. Run them by hand:
       SUPABASE_PUBLISHABLE_KEY=... SUPABASE_SECRET_KEY=... dotnet test tests/HamQso.Spots.EndToEnd.Tests
-    SendSpotTests and ProxyTests run the server here (real Supabase, fake DX node
-    and fake services on loopback): never the real cluster or the real services.
+    SendSpotTests, ProxyTests and RbnTests run the server here (real Supabase, fake
+    DX node, RBN and services on loopback): never the real cluster, RBN or services.
   -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
@@ -20,5 +20,6 @@
   <ItemGroup>
     <Compile Include="../HamQso.Spots.Infrastructure.Tests/Sending/FakeDxNode.cs" Link="FakeDxNode.cs" />
     <Compile Include="../HamQso.Spots.Host.Tests/FakeUpstream.cs" Link="FakeUpstream.cs" />
+    <Compile Include="../HamQso.Spots.Infrastructure.Tests/Rbn/FakeRbnNode.cs" Link="FakeRbnNode.cs" />
   </ItemGroup>
 </Project>

@@ -19,6 +19,7 @@ app.MapMqttAuth(ports.InternalPort);
 app.MapSpotsApi();
 app.MapSendSpotApi();
 app.MapProxyApi();
+app.MapRbnApi();
 await app.RunAsync();
 
 static Task WriteHealth(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)

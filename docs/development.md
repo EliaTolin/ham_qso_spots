@@ -31,11 +31,11 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 475 tests, about 45 s
+dotnet test                 # 549 tests, about 45 s
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 
-Coverage on 29/10/2026: 98.1% (Domain 100%, Infrastructure 98.7%, Host 95.9%, Application 96.7%); generated code (`obj/`: regex and logging generators) is left out.
+Coverage on 29/10/2026: 97.9% (Domain 100%, Infrastructure 98.6%, Host 95.3%, Application 97.0%); generated code (`obj/`: regex and logging generators) is left out.
 
 | Kind | Where | Notes |
 |---|---|---|
@@ -44,6 +44,7 @@ Coverage on 29/10/2026: 98.1% (Domain 100%, Infrastructure 98.7%, Host 95.9%, Ap
 | Use cases | `Application.Tests` | Fakes for every port; a fake store gives growing seqs as Postgres does |
 | Sources | `Infrastructure.Tests/Sources` | Real answers recorded on 27/10/2026 in `Fixtures/` plus malformed rows; telnet against a fake node on loopback |
 | Proxy and CORS | `Infrastructure.Tests/Proxy`, `Host.Tests/ProxyApiTests`, `Host.Tests/CorsTests` | Forwarding rules against a fake handler; the real Host and client against `FakeUpstream` (a service without CORS on loopback): headers, redirects, limits (user, client address from a trusted proxy only, server), timeouts, and a test that fails if a secret reaches the log |
+| RBN stream | `Infrastructure.Tests/Rbn`, `Host.Tests/RbnApiTests` | `RbnTelnetFeed` against `FakeRbnNode` (loopback): one shared connection, server login, linger, reconnects; the SSE endpoint with a fake feed: auth (header and query, token never logged), filter by base call, 2 streams per user, ping, time limit |
 | Sending spots | `Infrastructure.Tests/Sending` | `TelnetClusterSender` against `FakeDxNode` (loopback, DXSpider-like: prompt, echo, "Duplicate spot"): login, one session per user (another SSID replaces it), one user per login (refused, seen as busy), idle close also after a dropped request, password, refused login, timeouts, cap with least-recently-used eviction and busy, no second line or telnet bytes ever written |
 | Postgres, Mosquitto | `Infrastructure.Tests/Postgres`, `/Mqtt` | Real containers (`postgres:17-alpine`, `eclipse-mosquitto:2.0`, and the image of `deploy/mosquitto`) |
 | Host | `Host.Tests` | The real Host via `WebApplicationFactory` (`TestHost`: no workers, fake archive reader and token check; the local port is chosen with a test header) |
@@ -75,7 +76,7 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_... SUPABASE_SECRET_KEY=sb_secret_... do
 
 They test the deployed system as an app sees it: `/health`, the client algorithm (MQTT subscription, REST list, a live piece of news found again with `since_seq`), refused tokens and publishes, `/mqtt/*` not reachable from outside, `alert_spots` matching only the test alert.
 
-`SendSpotTests` and `ProxyTests` are different: they run the server in the test process (`LocalServer`) (`WebApplicationFactory`, no sources, archive or broker) with the production Supabase project and `DxSend` pointed at a `FakeDxNode` on loopback, because the deployed server would spot on the real cluster. Real token check, real profile read for the spots (a signed-in test user made with the Auth admin API, `e2e-<uuid>@example.com`, gets the callsign `Q0E2E`; an anonymous one must be refused), real rate limit and telnet sender. `ProxyTests` use an anonymous user and a `FakeUpstream` in place of the services. **Never send spots to the public cluster, or calls to the real services, from a test.**
+`SendSpotTests`, `ProxyTests` and `RbnTests` are different: they run the server in the test process (`LocalServer`) (`WebApplicationFactory`, no sources, archive or broker) with the production Supabase project and `DxSend` pointed at a `FakeDxNode` on loopback, because the deployed server would spot on the real cluster. Real token check, real profile read for the spots (a signed-in test user made with the Auth admin API, `e2e-<uuid>@example.com`, gets the callsign `Q0E2E`; an anonymous one must be refused), real rate limit and telnet sender. `ProxyTests` use an anonymous user and a `FakeUpstream` in place of the services; `RbnTests` a signed-in user and a `FakeRbnNode` in place of the RBN. **Never send spots to the public cluster, or calls to the real services, from a test.**
 
 What they create and remove: an anonymous Supabase user, Pro for the run (no devices, so no push reaches a phone), an alert on `Q0E2E`; at the end the user (with its alerts and events), the `processed_spots` rows and the +1 in the anonymous statistics.
 
@@ -120,6 +121,8 @@ Nothing else changes: merging, archive, publishing, alerts and health work for e
 | What | Here | Elsewhere |
 |---|---|---|
 | Band plan cases | `tests/HamQso.Spots.Domain.Tests/Fixtures/band_plan_cases.json` | `ham_qso_supabase/supabase/functions/_shared/`, `ham_qso_flutter/test/fixtures/` |
+| Base callsign cases | `tests/HamQso.Spots.Domain.Tests/Fixtures/base_callsign_cases.json` | `ham_qso_supabase/supabase/functions/_shared/`, `ham_qso_flutter/test/fixtures/` |
+| RBN line format | `Infrastructure/Rbn/RbnLineParser.cs` | `RbnLineParser` in `ham_qso_flutter/lib/src/features/coverage/data/parser/` |
 | DXCC prefixes | `src/HamQso.Spots.Domain/Data/dxcc_prefixes.json` | `ham_qso_supabase/supabase/functions/_shared/data/` |
 | Alert payload | `Infrastructure/Alerts/AlertSpotPayload.cs` | `NormalizedSpot` in `ham_qso_supabase/.../match_alerts/types.ts`, parsed by `alert_spots/api/parse-spots.ts` |
 | Client protocol | [protocol.md](protocol.md) | the app (`ham_qso_flutter`) |

@@ -7,7 +7,7 @@
     <ProjectReference Include="../../src/HamQso.Spots.Domain/HamQso.Spots.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- band_plan_cases.json is a copy of ham_qso_supabase/supabase/functions/_shared/band_plan_cases.json: keep them identical. -->
+    <!-- band_plan_cases.json and base_callsign_cases.json are copies of ham_qso_supabase/supabase/functions/_shared/: keep them identical. -->
     <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

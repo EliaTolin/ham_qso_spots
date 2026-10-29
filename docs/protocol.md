@@ -1,6 +1,6 @@
 # Client protocol
 
-How an app (or any client) gets spots from the spots server, how a client without telnet sends one ([`POST /v1/dx/spots`](#rest-post-v1dxspots-sending-a-dx-spot)), and how the web app reaches services that send no CORS headers ([the proxy](#rest-the-proxy-v1proxy)). Two channels, one message shape:
+How an app (or any client) gets spots from the spots server, how a client without telnet sends one ([`POST /v1/dx/spots`](#rest-post-v1dxspots-sending-a-dx-spot)), how the web app reaches services that send no CORS headers ([the proxy](#rest-the-proxy-v1proxy)), and how it hears the Reverse Beacon Network for the coverage test ([`GET /v1/rbn`](#stream-get-v1rbncallsign-the-coverage-test)). Two channels, one message shape:
 
 - **REST** `GET https://spot.hamqso.app/v1/spots` gives the starting list, or what changed since the last spot the client saw.
 - **MQTT** `wss://spot.hamqso.app/mqtt` pushes the news live, as soon as a spot is saved.
@@ -325,9 +325,39 @@ Every other answer is the service's own.
 | `502` | `{"error": "upstream_redirect"}` | The service redirects to another host (or more than 5 times) |
 | `504` | `{"error": "upstream_timeout"}` | No answer within 30 s |
 
+## Stream: `GET /v1/rbn/{callsign}` (the coverage test)
+
+The coverage test listens to the Reverse Beacon Network for the user's station. The phone opens the RBN telnet itself; a browser cannot, so the web app listens through the server, as **Server-Sent Events**:
+
+```
+GET https://spot.hamqso.app/v1/rbn/IU4VRB                    Authorization: Bearer <access_token>
+GET https://spot.hamqso.app/v1/rbn/EA8/IU4VRB/P?access_token=<access_token>     (EventSource cannot set headers)
+```
+
+```js
+const source = new EventSource(`https://spot.hamqso.app/v1/rbn/${call}?access_token=${token}`);
+source.onmessage = (e) => parse(e.data);          // one raw RBN line per event
+source.addEventListener('end', () => source.close());
+```
+
+- **Who**: signed-in HamQSO users only (the coverage test needs a callsign): anonymous users get `403 account_required`, HamQRG users `403 not_allowed`. The token may come in `Authorization: Bearer` or in the query `access_token` (it is never logged).
+- **`{callsign}`**: the station to hear, slashes included (`EA8/IU4VRB/P`), letters and digits with at least one of each, at most 20 characters, as written (no spaces). The server matches spots **as the app does**: the base call of the spot equals the base call asked (`baseCallsign`, shared cases in `base_callsign_cases.json`), so `IU4VRB`, `IU4VRB/P`, `EA8/IU4VRB` all match `IU4VRB`.
+- **Events**: `text/event-stream`, first the comment `: connected`; then one `data:` event per RBN spot line of the station, **the line as the RBN sent it** (trimmed, control characters removed), e.g. `data: DX de OK4YL-#:   7025.10  IU4VRB/P   CW   7 dB  23 WPM  CQ   2055Z`; parse it as the app's `RbnLineParser`. A comment `: ping` every 15 s keeps proxies from closing a quiet stream.
+- **Duration**: at most **15 minutes** per stream; then `event: end` / `data: time_limit` and the server closes it (open a new one to go on). Close it yourself when the test ends.
+- **Limit**: at most **2 streams at once per user** (`429 too_many_streams`).
+- **Behind it**: one RBN telnet connection for all listeners of the server, logged in with the server's own callsign (never the user's), opened by the first listener and closed 1 minute after the last; reconnected with backoff if it drops. While it reconnects the stream stays open and simply has no events.
+
+| Status | Body | When |
+|---|---|---|
+| `200` | the event stream | |
+| `400` | `{"error": "invalid_callsign"}` | Not a callsign (see above) |
+| `401` | empty | No token, or not a valid Supabase token |
+| `403` | `{"error": "account_required"}` / `{"error": "not_allowed"}` | Anonymous user / reader project |
+| `429` | `{"error": "too_many_streams"}` | 2 streams of this user already open |
+
 ## CORS
 
-The HTTP API (`/v1/spots`, `/v1/dx/spots`, `/v1/proxy`) answers browsers of the configured origins (`Cors:Origins`; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`; preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.
+The HTTP API (`/v1/spots`, `/v1/dx/spots`, `/v1/proxy`, `/v1/rbn`) answers browsers of the configured origins (`Cors:Origins`; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`; preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.
 
 ## Limits and attribution
 

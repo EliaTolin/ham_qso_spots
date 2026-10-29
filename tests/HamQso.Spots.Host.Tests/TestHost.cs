@@ -48,6 +48,9 @@ public sealed class TestHost : WebApplicationFactory<Program>
     /// <summary>The proxy allowlist of the test (empty: no service).</summary>
     public Dictionary<string, Uri> Upstreams { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>The environment of the Host (its appsettings.{Environment}.json).</summary>
+    public string Environment { get; set; } = "Development";
+
     /// <summary>Extra configuration, set before the first request.</summary>
     public Dictionary<string, string> Settings { get; } = [];
 
@@ -61,6 +64,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
         builder.UseSetting("Supabase:SecretKey", "test");
         builder.UseSetting("Feeds:WWFF:Enabled", "false");
         builder.UseSetting("Feeds:POTA:Interval", "00:02:00");
+        builder.UseEnvironment(Environment);
         foreach (var (key, value) in Settings) builder.UseSetting(key, value);
         builder.ConfigureLogging(logging => logging.AddProvider(Logs));
         builder.ConfigureTestServices(s =>

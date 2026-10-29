@@ -23,10 +23,12 @@ public sealed partial class ForwardToUpstream(IUpstreamProxy upstream, ProxyRate
     /// Null reply: not sent (<see cref="ForwardResult.Admission"/> says why).
     /// <paramref name="clientAddress"/> only counts for its limit, it is never logged.
     /// </summary>
-    public async Task<ForwardResult> ExecuteAsync(string userId, string clientAddress, ProxyCall call, CancellationToken cancellationToken)
+    public async Task<ForwardResult> ExecuteAsync(TokenUser user, string clientAddress, ProxyCall call, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(user);
         ArgumentNullException.ThrowIfNull(call);
-        var (admission, wait) = limiter.TryAcquire(userId, clientAddress);
+        var userId = user.UserId;
+        var (admission, wait) = limiter.TryAcquire(userId, user.IsAnonymous, clientAddress);
         if (admission != ProxyAdmission.Allowed)
         {
             LogCall(logger, userId, call.Service, call.Method, admission == ProxyAdmission.Busy ? "busy" : "rate_limited", 0, call.Body?.Length ?? 0, 0);

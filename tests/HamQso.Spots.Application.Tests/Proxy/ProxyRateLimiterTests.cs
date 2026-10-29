@@ -10,14 +10,14 @@ public class ProxyRateLimiterTests
 
     public ProxyRateLimiterTests() => limiter = new ProxyRateLimiter(time);
 
-    private ProxyAdmission Call(string user, string address) => limiter.TryAcquire(user, address).Admission;
+    private ProxyAdmission Call(string user, string address, bool anonymous = false) => limiter.TryAcquire(user, anonymous, address).Admission;
 
     [Fact]
     public void A_user_makes_120_calls_a_minute()
     {
         for (var i = 0; i < 120; i++) Assert.Equal(ProxyAdmission.Allowed, Call("u", $"10.0.0.{i}"));
 
-        Assert.Equal((ProxyAdmission.RateLimited, TimeSpan.FromMinutes(1)), limiter.TryAcquire("u", "10.0.1.1"));
+        Assert.Equal((ProxyAdmission.RateLimited, TimeSpan.FromMinutes(1)), limiter.TryAcquire("u", false, "10.0.1.1"));
     }
 
     [Fact]
@@ -34,10 +34,20 @@ public class ProxyRateLimiterTests
     }
 
     [Fact]
-    public void The_whole_server_makes_3000_calls_a_minute_then_busy()
+    public void Anonymous_users_have_their_own_server_budget_and_cannot_starve_accounts()
     {
-        for (var i = 0; i < 3000; i++) Assert.Equal(ProxyAdmission.Allowed, Call($"u-{i}", $"addr-{i}"));
+        for (var i = 0; i < 1000; i++) Assert.Equal(ProxyAdmission.Allowed, Call($"anon-{i}", $"addr-{i}", anonymous: true));
 
-        Assert.Equal((ProxyAdmission.Busy, TimeSpan.FromMinutes(1)), limiter.TryAcquire("u-new", "addr-new"));
+        Assert.Equal((ProxyAdmission.Busy, TimeSpan.FromMinutes(1)), limiter.TryAcquire("anon-new", true, "addr-new"));
+        Assert.Equal(ProxyAdmission.Allowed, Call("account", "addr-account"));
+    }
+
+    [Fact]
+    public void Accounts_make_2000_calls_a_minute_together_then_busy()
+    {
+        for (var i = 0; i < 2000; i++) Assert.Equal(ProxyAdmission.Allowed, Call($"u-{i}", $"addr-{i}"));
+
+        Assert.Equal(ProxyAdmission.Busy, Call("u-new", "addr-new"));
+        Assert.Equal(ProxyAdmission.Allowed, Call("anon", "addr-anon", anonymous: true));
     }
 }

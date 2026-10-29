@@ -31,8 +31,7 @@ public static class ProxyEndpoints
 
             var call = new ProxyCall(service, http.Request.Method, path ?? "", http.Request.QueryString.Value ?? "", Forwarded(http.Request), body, http.Request.ContentType);
             // The address of the client: behind Traefik, from X-Forwarded-For of a trusted proxy only (ClientAddress).
-            var address = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            var result = await forward.ExecuteAsync(user.UserId, address, call, ct);
+            var result = await forward.ExecuteAsync(user, AddressKey.Of(http.Connection.RemoteIpAddress), call, ct);
             if (result.Reply is not { } reply)
             {
                 return result.Admission == ProxyAdmission.Busy

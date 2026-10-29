@@ -31,11 +31,11 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 549 tests, about 45 s
+dotnet test                 # 560 tests, about 45 s
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 
-Coverage on 29/10/2026: 97.9% (Domain 100%, Infrastructure 98.6%, Host 95.3%, Application 97.0%); generated code (`obj/`: regex and logging generators) is left out.
+Coverage on 29/10/2026: 97.9% (Domain 100%, Infrastructure 98.6%, Host 95.3%, Application 97.2%); generated code (`obj/`: regex and logging generators) is left out.
 
 | Kind | Where | Notes |
 |---|---|---|

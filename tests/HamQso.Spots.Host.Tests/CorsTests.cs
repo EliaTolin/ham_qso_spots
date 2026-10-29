@@ -66,6 +66,24 @@ public sealed class CorsTests : IDisposable
     }
 
     [Theory]
+    [InlineData("https://app.hamqso.app", HttpStatusCode.NoContent, "https://app.hamqso.app")]
+    [InlineData("http://localhost:5173", HttpStatusCode.NoContent, "")]
+    [InlineData("https://evil.example", HttpStatusCode.NoContent, "")]
+    public async Task In_production_only_the_web_app_at_app_hamqso_app_is_allowed(string origin, HttpStatusCode status, string allowed)
+    {
+        using var production = new TestHost { Environment = "Production" };
+        using var request = new HttpRequestMessage(HttpMethod.Options, "/v1/dx/spots");
+        request.Headers.Add("Origin", origin);
+        request.Headers.Add("Access-Control-Request-Method", "POST");
+        request.Headers.Add("Access-Control-Request-Headers", "authorization");
+
+        using var response = await production.Client(token: null).SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(status, response.StatusCode);
+        Assert.Equal(allowed, Header(response, "Access-Control-Allow-Origin"));
+    }
+
+    [Theory]
     [InlineData("https://app.hamqso.example", true)]
     [InlineData("HTTPS://APP.HAMQSO.EXAMPLE", true)]
     [InlineData("http://localhost", true)]

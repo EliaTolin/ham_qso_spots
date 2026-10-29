@@ -124,7 +124,7 @@ The coverage test (Pro) listens to the Reverse Beacon Network for the user's sta
 
 - `RbnTelnetFeed`: **one** telnet connection for every listener of the server, logged in with the server's callsign (`Rbn:Callsign`, the same `N0CALL-87` as the cluster sources), opened by the first listener, closed 1 minute after the last one leaves, reopened with exponential backoff (up to 2 min) when it drops or is silent for 2 minutes. Telnet decoding, line splitting and the login prompt are the ones of the cluster sources. Every spot line goes to every listener through its own bounded queue (1000 lines, oldest dropped), so a slow browser never slows the others. RBN sends the whole world, several lines a second: the feed does not filter, the listeners do.
 - `WatchRbn`: keeps the lines whose base call equals the asked one (`Callsign.Base`, the app's `baseCallsign`, tested on the shared `base_callsign_cases.json`), at most 2 streams per user.
-- The endpoint: signed-in users only (the test needs a callsign; anonymous tokens are free to get), token also in `?access_token=` for `EventSource` (never logged: same rule as the proxy), a `: ping` every 15 s, at most 15 minutes per stream. Logged: user, callsign, number of lines, why it ended.
+- The endpoint: signed-in users only (the test needs a callsign; anonymous tokens are free to get), token in the `Authorization` header only (the web app reads the stream with `fetch`; a token in the URL would end up in logs and histories), a `: ping` every 15 s, at most 15 minutes per stream. Logged: user, callsign, number of lines, why it ended.
 - Not in `/health`: the connection exists only while someone listens.
 
 ## The proxy: nothing kept, nothing logged

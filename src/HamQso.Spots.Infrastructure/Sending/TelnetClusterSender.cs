@@ -156,8 +156,14 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
     private void ArmIdle(Slot slot, TimeSpan idle)
     {
         slot.LastUse = time.GetUtcNow();
+        Schedule(slot, idle);
+    }
+
+    /// <summary>Called with the slot's gate held.</summary>
+    private void Schedule(Slot slot, TimeSpan due)
+    {
         slot.Idle?.Dispose();
-        slot.Idle = time.CreateTimer(_ => _ = CloseIfIdleAsync(slot), null, idle, Timeout.InfiniteTimeSpan);
+        slot.Idle = time.CreateTimer(_ => _ = CloseIfIdleAsync(slot), null, due, Timeout.InfiniteTimeSpan);
     }
 
     private async Task CloseIfIdleAsync(Slot slot)
@@ -165,8 +171,12 @@ public sealed partial class TelnetClusterSender(IOptions<DxSendOptions> options,
         await slot.Gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            // A spot may have come while this timer was waiting for the gate.
-            if (time.GetUtcNow() - slot.LastUse >= options.Value.IdleTimeout) await CloseAsync(slot).ConfigureAwait(false);
+            if (slot.Session is null) return;
+            var left = options.Value.IdleTimeout - (time.GetUtcNow() - slot.LastUse);
+            if (left <= TimeSpan.Zero) await CloseAsync(slot).ConfigureAwait(false);
+            // A spot came while this timer waited for the gate, or the timer fired a little
+            // before the clock says the idle time is over: wait the rest, never give up.
+            else Schedule(slot, left);
         }
         finally
         {

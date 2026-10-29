@@ -82,17 +82,20 @@ public sealed class RbnApiTests : IDisposable
     }
 
     [Fact]
-    public async Task The_token_may_come_in_the_query_for_EventSource_and_never_reaches_the_log()
+    public async Task The_token_goes_in_the_Authorization_header_only_never_in_the_query_and_never_reaches_the_log()
     {
-        using (var stream = await Open($"/v1/rbn/IU4VRB?access_token={TestHost.ValidToken}", token: null))
+        using (var query = await Open($"/v1/rbn/IU4VRB?access_token={TestHost.ValidToken}", token: null))
         {
-            Assert.Equal(HttpStatusCode.OK, stream.Response.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, query.Response.StatusCode);
+        }
+        using (var stream = await Open("/v1/rbn/IU4VRB"))
+        {
             Assert.Equal(": connected", await stream.NextAsync());
         }
         await WaitForReaders(0);
         await Task.Delay(200, Ct);
 
-        Assert.DoesNotContain(host.Logs.Lines, l => l.Contains(TestHost.ValidToken, StringComparison.Ordinal) || l.Contains("access_token", StringComparison.Ordinal));
+        Assert.DoesNotContain(host.Logs.Lines, l => l.Contains(TestHost.ValidToken, StringComparison.Ordinal));
         Assert.Contains(host.Logs.Lines, l => l.Contains($"RBN stream of user {TestHost.UserId} for IU4VRB", StringComparison.Ordinal));
     }
 

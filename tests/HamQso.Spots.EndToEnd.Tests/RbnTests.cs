@@ -4,8 +4,8 @@ using HamQso.Spots.Infrastructure.Tests.Rbn;
 namespace HamQso.Spots.EndToEnd.Tests;
 
 /// <summary>
-/// GET /v1/rbn as the web app's EventSource calls it: a real signed-in HamQSO
-/// user (token in ?access_token=), the real token check and RBN feed of the
+/// GET /v1/rbn as the web app reads it (fetch, Authorization header): a real
+/// signed-in HamQSO user, the real token check and RBN feed of the
 /// server run here, and a <see cref="FakeRbnNode"/> on loopback instead of
 /// telnet.reversebeacon.net.
 /// </summary>
@@ -38,7 +38,8 @@ public sealed class RbnTests : IAsyncLifetime
     {
         var http = server.CreateClient();
         http.DefaultRequestHeaders.Add("Origin", "http://localhost:5173");
-        using var response = await http.GetAsync(new Uri($"/v1/rbn/Q0E2E?access_token={user.AccessToken}", UriKind.Relative), HttpCompletionOption.ResponseHeadersRead, Ct);
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", user.AccessToken);
+        using var response = await http.GetAsync(new Uri("/v1/rbn/Q0E2E", UriKind.Relative), HttpCompletionOption.ResponseHeadersRead, Ct);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("http://localhost:5173", response.Headers.GetValues("Access-Control-Allow-Origin").Single());
         using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(Ct));
@@ -63,7 +64,9 @@ public sealed class RbnTests : IAsyncLifetime
     {
         await using var anonymous = await TestUser.CreateAsync(Ct);
 
-        using var response = await server.CreateClient().GetAsync(new Uri($"/v1/rbn/Q0E2E?access_token={anonymous.AccessToken}", UriKind.Relative), Ct);
+        var http = server.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", anonymous.AccessToken);
+        using var response = await http.GetAsync(new Uri("/v1/rbn/Q0E2E", UriKind.Relative), Ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Contains("account_required", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);

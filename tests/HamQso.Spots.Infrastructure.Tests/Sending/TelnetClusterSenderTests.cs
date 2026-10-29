@@ -28,10 +28,17 @@ public sealed class TelnetClusterSenderTests
         MaxSessions = maxSessions,
     };
 
-    private static TelnetClusterSender Sender(int port, TimeSpan? idle = null, TimeSpan? loginTimeout = null, int maxSessions = 50) => new(
+    private static TelnetClusterSender Sender(int port, TimeSpan? idle = null, TimeSpan? loginTimeout = null, int maxSessions = 50, TimeProvider? time = null) => new(
         Microsoft.Extensions.Options.Options.Create(Settings(port, idle, loginTimeout, maxSessions)),
-        TimeProvider.System,
+        time ?? TimeProvider.System,
         NullLogger<TelnetClusterSender>.Instance);
+
+    /// <summary>The real clock, whose timers fire 200 ms early, as a timer may against the wall clock.</summary>
+    private sealed class EarlyTimers : TimeProvider
+    {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            System.CreateTimer(callback, state, dueTime > TimeSpan.FromMilliseconds(200) ? dueTime - TimeSpan.FromMilliseconds(200) : dueTime, period);
+    }
 
     [Fact]
     public async Task Logs_in_as_the_user_sends_the_line_and_returns_the_replies_but_not_the_spots()
@@ -133,6 +140,18 @@ public sealed class TelnetClusterSenderTests
 
         Assert.Equal(ClusterSendStatus.Sent, result.Status);
         Assert.Equal(2, node.Connections.Count);
+    }
+
+    [Fact]
+    public async Task The_session_closes_even_when_the_idle_timer_fires_before_the_clock_says_so()
+    {
+        await using var node = new FakeDxNode();
+        await using var sender = Sender(node.Port, idle: TimeSpan.FromMilliseconds(600), time: new EarlyTimers());
+
+        await sender.SendAsync(UserA, "IU4VRB-7", Line, Ct);
+
+        await Assert.Single(node.Connections).Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        Assert.Empty(sender.OpenLogins);
     }
 
     [Fact]

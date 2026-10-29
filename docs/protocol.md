@@ -327,20 +327,17 @@ Every other answer is the service's own.
 
 ## Stream: `GET /v1/rbn/{callsign}` (the coverage test)
 
-The coverage test listens to the Reverse Beacon Network for the user's station. The phone opens the RBN telnet itself; a browser cannot, so the web app listens through the server, as **Server-Sent Events**:
+The coverage test listens to the Reverse Beacon Network for the user's station. The phone opens the RBN telnet itself; a browser cannot, so the web app listens through the server, as **Server-Sent Events** read with `fetch` (so the token goes in the header, as everywhere; `EventSource` cannot set headers and is not supported):
 
 ```
-GET https://spot.hamqso.app/v1/rbn/IU4VRB                    Authorization: Bearer <access_token>
-GET https://spot.hamqso.app/v1/rbn/EA8/IU4VRB/P?access_token=<access_token>     (EventSource cannot set headers)
+GET https://spot.hamqso.app/v1/rbn/EA8/IU4VRB/P
+Authorization: Bearer <access_token>
+Accept: text/event-stream
 ```
 
-```js
-const source = new EventSource(`https://spot.hamqso.app/v1/rbn/${call}?access_token=${token}`);
-source.onmessage = (e) => parse(e.data);          // one raw RBN line per event
-source.addEventListener('end', () => source.close());
-```
+Read the body as a stream of lines: `data: <line>` is a spot, `event: end` closes the stream, lines starting with `:` are comments, an empty line ends an event.
 
-- **Who**: signed-in HamQSO users only (the coverage test needs a callsign): anonymous users get `403 account_required`, HamQRG users `403 not_allowed`. The token may come in `Authorization: Bearer` or in the query `access_token` (it is never logged).
+- **Who**: signed-in HamQSO users only (the coverage test needs a callsign): anonymous users get `403 account_required`, HamQRG users `403 not_allowed`. The token goes in `Authorization: Bearer` only; a token in the query is not read.
 - **`{callsign}`**: the station to hear, slashes included (`EA8/IU4VRB/P`), letters and digits with at least one of each, at most 20 characters, as written (no spaces). The server matches spots **as the app does**: the base call of the spot equals the base call asked (`baseCallsign`, shared cases in `base_callsign_cases.json`), so `IU4VRB`, `IU4VRB/P`, `EA8/IU4VRB` all match `IU4VRB`.
 - **Events**: `text/event-stream`, first the comment `: connected`; then one `data:` event per RBN spot line of the station, **the line as the RBN sent it** (trimmed, control characters removed), e.g. `data: DX de OK4YL-#:   7025.10  IU4VRB/P   CW   7 dB  23 WPM  CQ   2055Z`; parse it as the app's `RbnLineParser`. A comment `: ping` every 15 s keeps proxies from closing a quiet stream.
 - **Duration**: at most **15 minutes** per stream; then `event: end` / `data: time_limit` and the server closes it (open a new one to go on). Close it yourself when the test ends.

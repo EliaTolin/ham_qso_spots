@@ -11,8 +11,8 @@ namespace HamQso.Spots.Host;
 /// GET /v1/rbn/{callsign} (slashes included: /v1/rbn/EA8/IU4VRB/P): the coverage test of the web app (F58 decision 9).
 /// A Server-Sent Events stream with one event per RBN spot line of the
 /// station, from the shared RBN connection (<see cref="RbnTelnetFeed"/>).
-/// Signed-in HamQSO users only; the token in "Authorization: Bearer" or in
-/// ?access_token= (EventSource cannot set headers), never logged.
+/// Signed-in HamQSO users only; the token in "Authorization: Bearer", as for
+/// every endpoint (the web app reads the stream with fetch, not EventSource).
 /// Contract in docs/protocol.md.
 /// </summary>
 public static partial class RbnEndpoints
@@ -22,7 +22,7 @@ public static partial class RbnEndpoints
         {
             // Created now: a stream can outlive the logger factory when the server stops.
             var logger = loggers.CreateLogger(typeof(RbnEndpoints));
-            var user = await BearerAuth.UserFromHeaderOrQueryAsync(http, tokens, http.RequestAborted);
+            var user = await BearerAuth.UserAsync(http, tokens, http.RequestAborted);
             if (user is null || user.UserId.Length == 0) return Results.Unauthorized();
             if (user.IsReader) return ApiResults.Error(StatusCodes.Status403Forbidden, "not_allowed");
             if (user.IsAnonymous) return ApiResults.Error(StatusCodes.Status403Forbidden, "account_required");

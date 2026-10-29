@@ -10,6 +10,9 @@ public sealed class DxSendOptions
 {
     public const string Section = "DxSend";
 
+    /// <summary>Off in Development (appsettings.Development.json): a local run never spots on a real cluster.</summary>
+    public bool Enabled { get; set; } = true;
+
     /// <summary>DXFun (EA4RCH-5), as the app.</summary>
     [Required]
     public string Host { get; set; } = "dxfun.com";

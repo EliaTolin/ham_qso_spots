@@ -45,7 +45,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<GetSpots>();
         services.AddSingleton<ISourceHealth>(sp => sp.GetRequiredService<SourceHealthRegistry>());
         services.AddSingleton<ISpotPublisher, MqttSpotPublisher>();
-        services.AddHttpClient<IAlertNotifier, SupabaseAlertNotifier>();
+        // Without the secret key (a local run) the alerts are off: see FeatureSwitches.
+        if (!string.IsNullOrWhiteSpace(configuration[$"{SupabaseOptions.Section}:SecretKey"])) services.AddHttpClient<IAlertNotifier, SupabaseAlertNotifier>();
+        else services.AddSingleton<IAlertNotifier, NullAlertNotifier>();
         services.AddHttpClient<ITokenValidator, SupabaseJwtValidator>();
         services.AddSingleton<ISpotDeduplicator, InMemorySpotDeduplicator>();
         services.AddSingleton<IngestSpots>();
@@ -54,6 +56,10 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IProfileReader, SupabaseProfileReader>();
         services.AddSingleton<IClusterSender, TelnetClusterSender>();
         services.AddSingleton<SpotRateLimiter>();
+        services.AddSingleton(sp => FeatureSwitches.Sending(
+            sp.GetRequiredService<IOptions<SupabaseOptions>>().Value.HasSecretKey,
+            sp.GetRequiredService<IOptions<DxSendOptions>>().Value,
+            sp.GetRequiredService<IHostEnvironment>().IsDevelopment()));
         services.AddSingleton<SendDxSpot>();
 
         services.AddApiCors();

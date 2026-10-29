@@ -13,6 +13,9 @@ public enum SendDxSpotOutcome
     NoCallsign,
     NodeUnavailable,
     Busy,
+
+    /// <summary>Spot sending is off on this server (no Supabase secret key, or a local run).</summary>
+    Disabled,
 }
 
 public sealed record SendDxSpotResult(SendDxSpotOutcome Outcome, IReadOnlyList<string> Replies, TimeSpan? RetryAfter = null)
@@ -29,7 +32,7 @@ public sealed record SendDxSpotResult(SendDxSpotOutcome Outcome, IReadOnlyList<s
 /// The node's echo reaches the user with the other spots, as on the phone.
 /// Every attempt is logged.
 /// </summary>
-public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender cluster, SpotRateLimiter limiter, ILogger<SendDxSpot> logger)
+public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender cluster, SpotRateLimiter limiter, SpotSending sending, ILogger<SendDxSpot> logger)
 {
     public async Task<SendDxSpotResult> ExecuteAsync(string userId, string? line, int? ssid, CancellationToken cancellationToken)
     {
@@ -42,6 +45,7 @@ public sealed partial class SendDxSpot(IProfileReader profiles, IClusterSender c
 
     private async Task<(SendDxSpotResult Result, string? Login)> RunAsync(string userId, string? line, int? ssid, CancellationToken cancellationToken)
     {
+        if (!sending.Enabled) return (SendDxSpotResult.Failed(SendDxSpotOutcome.Disabled), null);
         if (!DxSpotLine.IsValid(line)) return (SendDxSpotResult.Failed(SendDxSpotOutcome.InvalidLine), null);
         if (!ClusterLogin.IsValidSsid(ssid)) return (SendDxSpotResult.Failed(SendDxSpotOutcome.InvalidSsid), null);
         if (limiter.TryAcquireUser(userId) is { } wait) return (SendDxSpotResult.Failed(SendDxSpotOutcome.RateLimited, wait), null);

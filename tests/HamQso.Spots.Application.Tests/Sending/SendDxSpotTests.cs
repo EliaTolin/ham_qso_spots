@@ -19,7 +19,7 @@ public class SendDxSpotTests
 
     private readonly FakeTimeProvider time = new();
 
-    public SendDxSpotTests() => send = new SendDxSpot(profiles, cluster, new SpotRateLimiter(time), logger);
+    public SendDxSpotTests() => send = new SendDxSpot(profiles, cluster, new SpotRateLimiter(time), SpotSending.On, logger);
 
     private Task<SendDxSpotResult> Send(string? line = Line, int? ssid = 7, string user = User) => send.ExecuteAsync(user, line, ssid, TestContext.Current.CancellationToken);
 
@@ -43,6 +43,18 @@ public class SendDxSpotTests
         Assert.Equal($"DX spot by user {User} as IU4VRB-7: {Line} -> Sent", logger.Messages[0]);
         // An invalid line never reaches the log as it is (it could forge log lines).
         Assert.Equal($"DX spot by user {User} as -: <invalid, 10 chars> -> InvalidLine", logger.Messages[1]);
+    }
+
+    [Fact]
+    public async Task When_sending_is_off_nothing_is_read_or_sent()
+    {
+        var off = new SendDxSpot(profiles, cluster, new SpotRateLimiter(time), new SpotSending(false, "no key"), logger);
+
+        var result = await off.ExecuteAsync(User, Line, 7, TestContext.Current.CancellationToken);
+
+        Assert.Equal(SendDxSpotOutcome.Disabled, result.Outcome);
+        Assert.Equal(0, profiles.Reads);
+        Assert.Empty(cluster.Sent);
     }
 
     [Fact]

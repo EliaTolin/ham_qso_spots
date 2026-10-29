@@ -64,7 +64,7 @@ public sealed class WorkerTests : IDisposable
     {
         var schema = new FakeSchema();
         ISpotSource[] sources = [new OneBatchSource("DXFun", [Dx("JA1ABC")]), new BrokenSource("HamQTH")];
-        using var worker = new IngestionWorker(sources, ingest, schema, health, time, NullLogger<IngestionWorker>.Instance);
+        using var worker = new IngestionWorker(sources, ingest, schema, health, new NoAlerts(), time, NullLogger<IngestionWorker>.Instance);
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
         await WaitFor(() => store.Saved.Count == 1 && health.Snapshot().Any(s => s.Name == "HamQTH" && s.IsFailing));
@@ -78,9 +78,22 @@ public sealed class WorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task With_the_alerts_off_health_has_no_alerts_entry()
+    {
+        using var worker = new IngestionWorker([new OneBatchSource("DXFun", [Dx("JA1ABC")])], ingest, new FakeSchema(), health, new NullAlertNotifier(), time, NullLogger<IngestionWorker>.Instance);
+
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        await WaitFor(() => store.Saved.Count == 1);
+        await worker.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(health.Snapshot(), s => s.Name == "alerts");
+        Assert.Contains(health.Snapshot(), s => s.Name == "broker");
+    }
+
+    [Fact]
     public async Task A_schema_that_cannot_be_created_does_not_stop_the_sources()
     {
-        using var worker = new IngestionWorker([new OneBatchSource("DXFun", [Dx("JA1ABC")])], ingest, new FakeSchema { Fail = true }, health, time, NullLogger<IngestionWorker>.Instance);
+        using var worker = new IngestionWorker([new OneBatchSource("DXFun", [Dx("JA1ABC")])], ingest, new FakeSchema { Fail = true }, health, new NoAlerts(), time, NullLogger<IngestionWorker>.Instance);
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
         await WaitFor(() => store.Saved.Count == 1);
@@ -91,7 +104,7 @@ public sealed class WorkerTests : IDisposable
     public async Task A_source_that_ends_is_started_again_after_10_s()
     {
         var source = new OneBatchSource("DXFun", [Dx("JA1ABC")]);
-        using var worker = new IngestionWorker([source], ingest, new FakeSchema(), health, time, NullLogger<IngestionWorker>.Instance);
+        using var worker = new IngestionWorker([source], ingest, new FakeSchema(), health, new NoAlerts(), time, NullLogger<IngestionWorker>.Instance);
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
         await WaitFor(() => source.Reads == 1);

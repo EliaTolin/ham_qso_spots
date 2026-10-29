@@ -2,7 +2,11 @@ using System.ComponentModel.DataAnnotations;
 
 namespace HamQso.Spots.Infrastructure.Alerts;
 
-/// <summary>Configuration section "Supabase". The secret key comes from user secrets (dev) or Coolify (prod).</summary>
+/// <summary>
+/// Configuration section "Supabase". The secret key comes from Coolify (prod) or
+/// user secrets (dev); without it the server still runs (tokens are checked with
+/// the public keys) but alerts and spot sending are off.
+/// </summary>
 public sealed class SupabaseOptions
 {
     public const string Section = "Supabase";
@@ -10,8 +14,10 @@ public sealed class SupabaseOptions
     [Required]
     public Uri Url { get; set; } = new("https://mpyvdejoqfgsupiqtkcp.supabase.co");
 
-    [Required]
+    /// <summary>Empty: alerts and spot sending off.</summary>
     public string SecretKey { get; set; } = "";
+
+    public bool HasSecretKey => !string.IsNullOrWhiteSpace(SecretKey);
 
     /// <summary>
     /// Other Supabase projects whose users may also read the spots (HamQRG):

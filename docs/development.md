@@ -31,11 +31,11 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 561 tests, about 45 s
+dotnet test                 # 575 tests, about 45 s
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 
-Coverage on 29/10/2026: 97.9% (Domain 100%, Infrastructure 98.6%, Host 95.2%, Application 97.2%); generated code (`obj/`: regex and logging generators) is left out.
+Coverage on 29/10/2026: 97.9% (Domain 100%, Infrastructure 98.6%, Host 95.4%, Application 96.9%); generated code (`obj/`: regex and logging generators) is left out.
 
 | Kind | Where | Notes |
 |---|---|---|
@@ -53,6 +53,32 @@ Test names are sentences (`After_10_minutes_it_is_a_new_spot`); the analyzer rul
 
 ## Running it locally
 
+### `scripts/run-local.sh` (for the web app's end-to-end tests)
+
+```
+scripts/run-local.sh          # Postgres + Mosquitto in Docker (deploy/local/compose.yaml), then the server with dotnet run
+scripts/run-local.sh down     # after Ctrl+C: remove the containers and the local archive
+```
+
+The whole server on this machine, without any secret: the real public sources (DX cluster telnet as `N0CALL-87`, HamQTH, DX Summit, POTA, SOTA, WWFF; read-only, as production), the archive, MQTT news, the REST API, the proxy, the RBN stream, CORS for `http://localhost:*` and `http://127.0.0.1:*`. Tokens are checked with the public keys (JWKS) of the production HamQSO project, so a token of the app's normal Supabase session works.
+
+| What | Where (defaults; override with `LOCAL_PUBLIC_PORT`, `LOCAL_INTERNAL_PORT`, `LOCAL_POSTGRES_PORT`, `LOCAL_MQTT_PORT`, `LOCAL_WS_PORT`) |
+|---|---|
+| REST | `http://127.0.0.1:18080/v1/spots?program=dx` (also `/v1/dx/spots`, `/v1/proxy/...`, `/v1/rbn/...`) |
+| Health | `http://127.0.0.1:18080/health` |
+| MQTT over WebSocket | `ws://127.0.0.1:19001/mqtt` (no TLS; password: the Supabase token) |
+| Broker auth backend | `18081` (Mosquitto in Docker calls it at `host.docker.internal`) |
+| Postgres, MQTT TCP | `127.0.0.1:55432`, `127.0.0.1:18883` |
+
+What is **off** in a local run (the script always runs without `Supabase:SecretKey`, even if user secrets have one; the log says it at start):
+
+- **Alerts**: no spot goes to `alert_spots` (a local run would alert real users twice); `/health` has no `alerts` entry.
+- **Spot sending** (`POST /v1/dx/spots`): `503 {"error": "sending_disabled"}`. Without the key the profile callsign cannot be read; besides, in Development sending is off (`DxSend:Enabled` false in `appsettings.Development.json`) and, even if turned on, may only go to a node on this machine (`127.0.0.1`, `::1`, `localhost`): a local run never spots on a real cluster.
+
+On a brand-new archive the first retention pass may log `relation "dx_spots" does not exist` (it can run before the schema is created); it passes an hour later.
+
+### Docker Compose (the production stack)
+
 With Docker Compose (the whole stack; the secrets come from the env file, not from user secrets):
 
 ```
@@ -66,7 +92,7 @@ dotnet user-secrets set "Supabase:SecretKey" "sb_secret_..." --project src/HamQs
 dotnet user-secrets set "Mqtt:Password" "..." --project src/HamQso.Spots.Host
 ```
 
-Locally nothing publishes `spot.hamqso.app`; map the ports in a compose override if needed (`server:8080`, `mosquitto:1883/9001`). The real sources are used: the server logs in to the telnet nodes as `N0CALL-87` like production. Alerts go to the real `alert_spots`: use a key of a test project, or expect real alerts.
+Locally nothing publishes `spot.hamqso.app`; map the ports in a compose override if needed (`server:8080`, `mosquitto:1883/9001`). The real sources are used: the server logs in to the telnet nodes as `N0CALL-87` like production. With a secret key, alerts go to the real `alert_spots`: use a key of a test project, or expect real alerts.
 
 ## End-to-end tests (production)
 

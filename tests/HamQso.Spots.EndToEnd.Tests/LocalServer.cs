@@ -29,6 +29,7 @@ public sealed class LocalServer : WebApplicationFactory<Program>
         builder.UseSetting("ConnectionStrings:Spots", "Host=localhost;Database=none");
         builder.UseSetting("Supabase:Url", E2eSettings.Supabase.ToString());
         builder.UseSetting("Supabase:SecretKey", E2eSettings.SecretKey);
+        builder.UseSetting("DxSend:Enabled", "true");
         builder.UseSetting("DxSend:Host", "127.0.0.1");
         builder.UseSetting("DxSend:Port", DxNodePort.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.UseSetting("Rbn:Host", "127.0.0.1");

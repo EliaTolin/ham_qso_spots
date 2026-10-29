@@ -269,6 +269,7 @@ Answer `200`:
 | `422` | `{"error": "no_callsign"}` | The user's profile has no callsign, or one outside the profile pattern (or the user has no profile): ask the user to set it |
 | `429` | `{"error": "rate_limited", "retry_after_s": 42}` + header `Retry-After: 42` | More than **3 spots a minute** or **20 an hour** for this user (sliding windows). Every request with a valid line and SSID counts, also one that then ends in `422` or `502`. There is no limit per callsign: profile callsigns are not verified, so anyone could use up someone else's |
 | `502` | `{"error": "node_unavailable"}` | The node cannot be reached, or the login is not over within 15 s, or the connection drops while sending |
+| `503` | `{"error": "sending_disabled"}` | Spot sending is off on this server (a local run without the secret key) |
 | `503` | `{"error": "busy"}` | Try again later (no `Retry-After`). The server is full: more than **60 spots a minute from all users together** (only spots that passed every other check count), or 50 sessions open and all sending at that moment; or the login is held by another user. It counts against the user's own limit like any attempt past it |
 
 The order of the checks: token (401), reader or anonymous (403), line and SSID (400), user limit (429), profile (422), server limit (503, checked last so failed or refused attempts never use it), login of another user (503), sessions (503), node (502). Every request that gets past the token is logged on the server (user id, login, line, outcome).

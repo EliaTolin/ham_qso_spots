@@ -39,6 +39,7 @@ public static class SendSpotEndpoints
                 SendDxSpotOutcome.NoCallsign => ApiResults.Error(StatusCodes.Status422UnprocessableEntity, "no_callsign"),
                 SendDxSpotOutcome.RateLimited => ApiResults.RateLimited(http, result.RetryAfter ?? TimeSpan.Zero),
                 SendDxSpotOutcome.Busy => ApiResults.Error(StatusCodes.Status503ServiceUnavailable, "busy"),
+                SendDxSpotOutcome.Disabled => ApiResults.Error(StatusCodes.Status503ServiceUnavailable, "sending_disabled"),
                 _ => ApiResults.Error(StatusCodes.Status502BadGateway, "node_unavailable"),
             };
         });

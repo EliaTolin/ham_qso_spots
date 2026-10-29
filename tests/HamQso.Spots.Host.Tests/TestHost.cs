@@ -64,6 +64,9 @@ public sealed class TestHost : WebApplicationFactory<Program>
         builder.UseSetting("Supabase:SecretKey", "test");
         builder.UseSetting("Feeds:WWFF:Enabled", "false");
         builder.UseSetting("Feeds:POTA:Interval", "00:02:00");
+        // Sending on, to a node on this machine (the cluster itself is faked).
+        builder.UseSetting("DxSend:Enabled", "true");
+        builder.UseSetting("DxSend:Host", "127.0.0.1");
         builder.UseEnvironment(Environment);
         foreach (var (key, value) in Settings) builder.UseSetting(key, value);
         builder.ConfigureLogging(logging => logging.AddProvider(Logs));

@@ -31,7 +31,8 @@ Port `8081` of the server (`/mqtt/*`, broker auth) and `1883` of Mosquitto (the 
 | `Mqtt` | `Host`, `Port` (1883), `ClientId`, `Username` (`ingestor`), `Password` |
 | `Supabase` | `Url`, `SecretKey` (alerts, and reading the callsign of a profile for `/v1/dx/spots`), `AlertsFunction` (`alert_spots`), `ReaderUrls` (projects whose users may only read: HamQRG) |
 | `Cors` | `Origins`: the web app origins allowed to call the API (exact, or `scheme://host:*` for any port). **Empty in production until the web address is chosen**: set it then, e.g. Coolify variable `Cors__Origins__0=https://<web app address>`. Development: `http://localhost:*`, `http://127.0.0.1:*` |
-| `Proxy` | `Timeout` (30 s), `MaxBodyBytes` (10 MB). The services are a fixed list in code (`ProxyAllowlist`), not configuration |
+| `Proxy` | `Timeout` (30 s), `MaxBodyBytes` (10 MB). The services are a fixed list in code (`ProxyAllowlist`), not configuration. Limits in code: 120 calls a minute per user, 300 per client address, 3000 for the server |
+| `ForwardedHeaders` | `TrustedNetworks`: the networks whose `X-Forwarded-For` gives the client address (the last entry only). Default `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`: Traefik in the Docker network. If the server's ports are ever published outside the Docker network, or another proxy (a CDN) is put in front, set this to the exact proxy addresses, or every client would share the proxy's address limit, or could claim any address |
 | `DxSend` | The node users spot on through the server: `Host` (`dxfun.com`), `Port` (8000), `LoginTimeout` (15 s), `LoginFallback` (4 s), `WelcomeSilence` (2 s), `ReplyWindow` (2 s), `MaxSessions` (50, one per user; beyond it the least recently used idle session is closed, 503 `busy` only when all are sending), `IdleTimeout` (3 min) |
 
 Options are validated at startup: a missing required value stops the server with a clear error.

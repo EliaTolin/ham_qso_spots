@@ -55,6 +55,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SendDxSpot>();
 
         services.AddApiCors();
+        services.AddClientAddress(configuration);
         services.AddOptions<ProxyOptions>().BindConfiguration(ProxyOptions.Section).ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton(ProxyAllowlist.Production);
         // No cookies, no automatic redirects (only same-host ones, by hand) and no

@@ -26,7 +26,7 @@ public class ForwardToUpstreamTests
         Encoding.UTF8.GetBytes("password=EQSL-PASSWORD-9999"),
         "application/x-www-form-urlencoded");
 
-    private Task<ForwardResult> Forward() => forward.ExecuteAsync(User, Call(), TestContext.Current.CancellationToken);
+    private Task<ForwardResult> Forward(string user = User, string address = "203.0.113.7") => forward.ExecuteAsync(user, address, Call(), TestContext.Current.CancellationToken);
 
     [Fact]
     public async Task The_call_goes_to_the_service_and_its_answer_comes_back()
@@ -47,7 +47,7 @@ public class ForwardToUpstreamTests
         var line = Assert.Single(logger.Messages);
         Assert.StartsWith($"Proxy {User} qrz-logbook POST -> 200 in ", line, StringComparison.Ordinal);
         Assert.EndsWith(" ms, 27 B up, 5 B down", line, StringComparison.Ordinal);
-        foreach (var secret in new[] { "QRZ-API-KEY", "SOTA-TOKEN", "EQSL-PASSWORD", "secret-path", "KEY=", "Bearer", "x-www-form" })
+        foreach (var secret in new[] { "QRZ-API-KEY", "SOTA-TOKEN", "EQSL-PASSWORD", "secret-path", "KEY=", "Bearer", "x-www-form", "203.0.113.7" })
         {
             Assert.DoesNotContain(secret, line, StringComparison.Ordinal);
         }
@@ -61,9 +61,21 @@ public class ForwardToUpstreamTests
         var limited = await Forward();
 
         Assert.Null(limited.Reply);
-        Assert.Equal(TimeSpan.FromMinutes(1), limited.RetryAfter);
+        Assert.Equal((ProxyAdmission.RateLimited, TimeSpan.FromMinutes(1)), (limited.Admission, limited.RetryAfter));
         Assert.Equal(120, upstream.Calls);
         Assert.EndsWith("-> rate_limited in 0 ms, 27 B up, 0 B down", logger.Messages[^1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task When_the_whole_server_is_over_its_budget_the_call_is_busy_and_logged_so()
+    {
+        for (var i = 0; i < 3000; i++) await Forward($"user-{i}", $"addr-{i}");
+
+        var busy = await Forward("someone", "elsewhere");
+
+        Assert.Equal((null, ProxyAdmission.Busy), (busy.Reply, busy.Admission));
+        Assert.Equal(3000, upstream.Calls);
+        Assert.Contains("-> busy in 0 ms", logger.Messages[^1], StringComparison.Ordinal);
     }
 
     [Fact]

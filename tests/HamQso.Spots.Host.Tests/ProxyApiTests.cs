@@ -196,6 +196,30 @@ public sealed class ProxyApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_address_limit_counts_the_client_the_trusted_proxy_saw_never_what_the_client_claims()
+    {
+        const string Traefik = "172.18.0.5";
+        async Task<HttpStatusCode> Get(string user, string remote, string? forwardedFor)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/proxy/svc/status/204");
+            request.Headers.Add("X-HamQSO-Auth", $"Bearer {TestHost.UserTokenPrefix}{user}");
+            request.Headers.Add(TestHost.RemoteHeader, remote);
+            if (forwardedFor is not null) request.Headers.Add("X-Forwarded-For", forwardedFor);
+            using var response = await host.Client(token: null).SendAsync(request, Ct);
+            return response.StatusCode;
+        }
+
+        // 300 calls of client 203.0.113.7 through Traefik, from three users; the first entry is the client's lie.
+        for (var i = 0; i < 300; i++) Assert.Equal(HttpStatusCode.NoContent, await Get($"u{i % 3}", Traefik, $"198.51.100.1, 203.0.113.7"));
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, await Get("u-new", Traefik, "203.0.113.7"));
+        Assert.Equal(HttpStatusCode.NoContent, await Get("u-new", Traefik, "203.0.113.8"));
+        // Not through a trusted proxy: X-Forwarded-For is ignored, the connection's address counts.
+        Assert.Equal(HttpStatusCode.NoContent, await Get("u-new", "198.51.100.9", "203.0.113.8"));
+        Assert.Equal(HttpStatusCode.NoContent, await Get("u-other", "198.51.100.10", "203.0.113.7"));
+    }
+
+    [Fact]
     public async Task Credentials_queries_headers_and_bodies_never_reach_the_log()
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/proxy/svc/echo/secret-path?KEY=QRZ-KEY-SECRET")

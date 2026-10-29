@@ -31,6 +31,12 @@ public sealed class TestHost : WebApplicationFactory<Program>
 
     public const string PortHeader = "X-Test-Local-Port";
 
+    /// <summary>The address the test connection comes from (default 127.0.0.1).</summary>
+    public const string RemoteHeader = "X-Test-Remote-Ip";
+
+    /// <summary>A valid token of the HamQSO user whose id follows the prefix.</summary>
+    public const string UserTokenPrefix = "valid.user.";
+
     public FakeReader Reader { get; } = new();
 
     public FakeProfiles Profiles { get; } = new();
@@ -82,6 +88,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
             ValidToken => new TokenUser(UserId, false, false),
             ReaderToken => new TokenUser(UserId, true, false),
             AnonymousToken => new TokenUser(UserId, false, true),
+            _ when token.StartsWith(UserTokenPrefix, StringComparison.Ordinal) => new TokenUser(token[UserTokenPrefix.Length..], false, true),
             _ => null,
         });
     }
@@ -116,6 +123,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
             app.Use((context, nextMiddleware) =>
             {
                 context.Connection.LocalPort = int.TryParse(context.Request.Headers[PortHeader], out var port) ? port : 8080;
+                context.Connection.RemoteIpAddress = System.Net.IPAddress.TryParse(context.Request.Headers[RemoteHeader], out var remote) ? remote : System.Net.IPAddress.Loopback;
                 return nextMiddleware(context);
             });
             next(app);

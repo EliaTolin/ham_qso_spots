@@ -30,8 +30,15 @@ public static class ProxyEndpoints
             if (tooLarge) return ApiResults.Error(StatusCodes.Status413PayloadTooLarge, "too_large");
 
             var call = new ProxyCall(service, http.Request.Method, path ?? "", http.Request.QueryString.Value ?? "", Forwarded(http.Request), body, http.Request.ContentType);
-            var result = await forward.ExecuteAsync(user.UserId, call, ct);
-            if (result.Reply is not { } reply) return ApiResults.RateLimited(http, result.RetryAfter ?? TimeSpan.Zero);
+            // The address of the client: behind Traefik, from X-Forwarded-For of a trusted proxy only (ClientAddress).
+            var address = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var result = await forward.ExecuteAsync(user.UserId, address, call, ct);
+            if (result.Reply is not { } reply)
+            {
+                return result.Admission == ProxyAdmission.Busy
+                    ? ApiResults.Error(StatusCodes.Status503ServiceUnavailable, "busy")
+                    : ApiResults.RateLimited(http, result.RetryAfter ?? TimeSpan.Zero);
+            }
             return reply.Outcome switch
             {
                 ProxyOutcome.Answered => new UpstreamResult(reply),

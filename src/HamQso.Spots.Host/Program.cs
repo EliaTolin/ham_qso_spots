@@ -12,6 +12,7 @@ builder.WebHost.ConfigureKestrel(kestrel =>
 builder.Services.AddSpotsServer(builder.Configuration);
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 app.UseCors();
 app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = WriteHealth });
 app.MapMqttAuth(ports.InternalPort);

@@ -31,7 +31,7 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 470 tests, about 45 s
+dotnet test                 # 475 tests, about 45 s
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 
@@ -43,7 +43,7 @@ Coverage on 29/10/2026: 98.1% (Domain 100%, Infrastructure 98.7%, Host 95.9%, Ap
 | Pure rules | `Domain.Tests` | Band plan: the 57 cases of `Fixtures/band_plan_cases.json`, a copy of `ham_qso_supabase/supabase/functions/_shared/band_plan_cases.json` (keep them identical; the app has the same file) |
 | Use cases | `Application.Tests` | Fakes for every port; a fake store gives growing seqs as Postgres does |
 | Sources | `Infrastructure.Tests/Sources` | Real answers recorded on 27/10/2026 in `Fixtures/` plus malformed rows; telnet against a fake node on loopback |
-| Proxy and CORS | `Infrastructure.Tests/Proxy`, `Host.Tests/ProxyApiTests`, `Host.Tests/CorsTests` | Forwarding rules against a fake handler; the real Host and client against `FakeUpstream` (a service without CORS on loopback): headers, redirects, limits, timeouts, and a test that fails if a secret reaches the log |
+| Proxy and CORS | `Infrastructure.Tests/Proxy`, `Host.Tests/ProxyApiTests`, `Host.Tests/CorsTests` | Forwarding rules against a fake handler; the real Host and client against `FakeUpstream` (a service without CORS on loopback): headers, redirects, limits (user, client address from a trusted proxy only, server), timeouts, and a test that fails if a secret reaches the log |
 | Sending spots | `Infrastructure.Tests/Sending` | `TelnetClusterSender` against `FakeDxNode` (loopback, DXSpider-like: prompt, echo, "Duplicate spot"): login, one session per user (another SSID replaces it), one user per login (refused, seen as busy), idle close also after a dropped request, password, refused login, timeouts, cap with least-recently-used eviction and busy, no second line or telnet bytes ever written |
 | Postgres, Mosquitto | `Infrastructure.Tests/Postgres`, `/Mqtt` | Real containers (`postgres:17-alpine`, `eclipse-mosquitto:2.0`, and the image of `deploy/mosquitto`) |
 | Host | `Host.Tests` | The real Host via `WebApplicationFactory` (`TestHost`: no workers, fake archive reader and token check; the local port is chosen with a test header) |

@@ -304,7 +304,7 @@ goes to `POST https://logbook.qrz.com/api` with the same body.
 - **What goes to the service**: method, path, query, body, and only the headers `Content-Type`, `Accept`, `Authorization`, `User-Agent`. No cookies, no other header.
 - **What comes back**: the service's status, `Content-Type` and body, as they are (also its errors: a `401` of QRZ is a `401` here). No other header of the service (no cookies).
 - **Redirects**: followed only on the same host (scheme, host and port), at most 5; 301/302/303 become a `GET` without body, 307/308 repeat the request. A redirect to another host is never followed (`502 upstream_redirect`).
-- **Limits**: request and answer body at most 10 MB; the service must answer within 30 s; **120 calls a minute per user**.
+- **Limits**: request and answer body at most 10 MB; the service must answer within 30 s; **120 calls a minute per user**, **300 a minute per client address** (anonymous users are free to create: a new one per call does not get around it) and **3000 a minute for the whole server**, all counted after the token check.
 - **Privacy**: the server keeps nothing and logs only user id, service, method, status, duration and sizes; never credentials, path, query, headers or bodies (see [architecture.md](architecture.md#the-proxy-nothing-kept-nothing-logged)).
 
 ### Errors of the proxy itself
@@ -317,7 +317,8 @@ Every other answer is the service's own.
 | `403` | `{"error": "not_allowed"}` | A token of a reader project (HamQRG) |
 | `404` | `{"error": "unknown_service"}` | `{service}` is not in the list |
 | `413` | `{"error": "too_large"}` | The request body is over 10 MB |
-| `429` | `{"error": "rate_limited", "retry_after_s": N}` + `Retry-After` | Over 120 calls a minute |
+| `429` | `{"error": "rate_limited", "retry_after_s": N}` + `Retry-After` | Over 120 calls a minute for the user, or 300 for the client address |
+| `503` | `{"error": "busy"}` | Over 3000 calls a minute for the whole server: try again later |
 | `400` | `{"error": "bad_path"}` | A `.`/`..` segment or a malformed query |
 | `502` | `{"error": "upstream_unavailable"}` | The service cannot be reached, or its answer broke off |
 | `502` | `{"error": "upstream_too_large"}` | The answer is over 10 MB |

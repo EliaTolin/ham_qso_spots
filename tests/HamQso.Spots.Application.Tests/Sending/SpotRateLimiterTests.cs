@@ -1,3 +1,4 @@
+using HamQso.Spots.Application.Limits;
 using HamQso.Spots.Application.Sending;
 using Microsoft.Extensions.Time.Testing;
 
@@ -96,7 +97,7 @@ public class SpotRateLimiterTests
         // 17 spots 59 minutes ago, 3 in the last 30 seconds: the minute frees in 30 s, the hour in 1 min.
         var times = Enumerable.Repeat(now.AddMinutes(-59), 17).Concat([now.AddSeconds(-30), now.AddSeconds(-20), now.AddSeconds(-10)]).ToList();
 
-        Assert.Equal(TimeSpan.FromMinutes(1), SpotRateLimiter.RetryAfter(SpotRateLimiter.UserLimits, times, now));
-        Assert.Equal(TimeSpan.FromSeconds(30), SpotRateLimiter.RetryAfter(SpotRateLimiter.UserLimits, times[^3..], now));
+        Assert.Equal(TimeSpan.FromMinutes(1), SlidingWindowLimiter.RetryAfter(SpotRateLimiter.UserLimits, times, now));
+        Assert.Equal(TimeSpan.FromSeconds(30), SlidingWindowLimiter.RetryAfter(SpotRateLimiter.UserLimits, times[^3..], now));
     }
 }

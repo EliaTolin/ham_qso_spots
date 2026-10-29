@@ -169,5 +169,5 @@ public sealed class SendSpotApiTests : IDisposable
     [InlineData(1.0, 1)]
     [InlineData(41.3, 42)]
     public void Retry_After_is_whole_seconds_rounded_up_and_at_least_1(double wait, int seconds) =>
-        Assert.Equal(seconds, SendSpotEndpoints.RetryAfterSeconds(TimeSpan.FromSeconds(wait)));
+        Assert.Equal(seconds, ApiResults.RetryAfterSeconds(TimeSpan.FromSeconds(wait)));
 }

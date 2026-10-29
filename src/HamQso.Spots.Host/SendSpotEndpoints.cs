@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Application.Sending;
@@ -25,36 +24,24 @@ public static class SendSpotEndpoints
         {
             var user = await BearerAuth.UserAsync(http, tokens, ct);
             if (user is null || user.UserId.Length == 0) return Results.Unauthorized();
-            if (user.IsReader) return Error(StatusCodes.Status403Forbidden, "not_allowed");
-            if (user.IsAnonymous) return Error(StatusCodes.Status403Forbidden, "account_required");
+            if (user.IsReader) return ApiResults.Error(StatusCodes.Status403Forbidden, "not_allowed");
+            if (user.IsAnonymous) return ApiResults.Error(StatusCodes.Status403Forbidden, "account_required");
 
             var body = await ReadBodyAsync(http, ct);
-            if (body is null) return Error(StatusCodes.Status400BadRequest, "invalid_line");
+            if (body is null) return ApiResults.Error(StatusCodes.Status400BadRequest, "invalid_line");
 
             var result = await send.ExecuteAsync(user.UserId, body.Line, body.Ssid, ct);
             return result.Outcome switch
             {
                 SendDxSpotOutcome.Sent => Results.Ok(new { sent = true, replies = result.Replies }),
-                SendDxSpotOutcome.InvalidLine => Error(StatusCodes.Status400BadRequest, "invalid_line"),
-                SendDxSpotOutcome.InvalidSsid => Error(StatusCodes.Status400BadRequest, "invalid_ssid"),
-                SendDxSpotOutcome.NoCallsign => Error(StatusCodes.Status422UnprocessableEntity, "no_callsign"),
-                SendDxSpotOutcome.RateLimited => RateLimited(http, result.RetryAfter ?? TimeSpan.Zero),
-                SendDxSpotOutcome.Busy => Error(StatusCodes.Status503ServiceUnavailable, "busy"),
-                _ => Error(StatusCodes.Status502BadGateway, "node_unavailable"),
+                SendDxSpotOutcome.InvalidLine => ApiResults.Error(StatusCodes.Status400BadRequest, "invalid_line"),
+                SendDxSpotOutcome.InvalidSsid => ApiResults.Error(StatusCodes.Status400BadRequest, "invalid_ssid"),
+                SendDxSpotOutcome.NoCallsign => ApiResults.Error(StatusCodes.Status422UnprocessableEntity, "no_callsign"),
+                SendDxSpotOutcome.RateLimited => ApiResults.RateLimited(http, result.RetryAfter ?? TimeSpan.Zero),
+                SendDxSpotOutcome.Busy => ApiResults.Error(StatusCodes.Status503ServiceUnavailable, "busy"),
+                _ => ApiResults.Error(StatusCodes.Status502BadGateway, "node_unavailable"),
             };
         });
-
-    /// <summary>Whole seconds, at least 1: a client that waits that long is let through.</summary>
-    public static int RetryAfterSeconds(TimeSpan wait) => Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds));
-
-    private static IResult RateLimited(HttpContext http, TimeSpan wait)
-    {
-        var seconds = RetryAfterSeconds(wait);
-        http.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
-        return Results.Json(new { error = "rate_limited", retry_after_s = seconds }, statusCode: StatusCodes.Status429TooManyRequests);
-    }
-
-    private static IResult Error(int status, string error) => Results.Json(new { error }, statusCode: status);
 
     /// <summary>The JSON body, or null when it is not one (or too big).</summary>
     private static async Task<SendSpotBody?> ReadBodyAsync(HttpContext http, CancellationToken ct)

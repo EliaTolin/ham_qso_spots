@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace HamQso.Spots.Host.Tests;
 
@@ -36,6 +37,15 @@ public sealed class TestHost : WebApplicationFactory<Program>
 
     public FakeCluster Cluster { get; } = new();
 
+    /// <summary>The proxy allowlist of the test (empty: no service).</summary>
+    public Dictionary<string, Uri> Upstreams { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Extra configuration, set before the first request.</summary>
+    public Dictionary<string, string> Settings { get; } = [];
+
+    /// <summary>Every log line the Host writes, filtered by its real logging configuration.</summary>
+    public LogSink Logs { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:Spots", "Host=localhost;Database=none");
@@ -43,6 +53,8 @@ public sealed class TestHost : WebApplicationFactory<Program>
         builder.UseSetting("Supabase:SecretKey", "test");
         builder.UseSetting("Feeds:WWFF:Enabled", "false");
         builder.UseSetting("Feeds:POTA:Interval", "00:02:00");
+        foreach (var (key, value) in Settings) builder.UseSetting(key, value);
+        builder.ConfigureLogging(logging => logging.AddProvider(Logs));
         builder.ConfigureTestServices(s =>
         {
             s.RemoveAll<IHostedService>();
@@ -50,6 +62,7 @@ public sealed class TestHost : WebApplicationFactory<Program>
             s.AddSingleton<ITokenValidator>(new FakeTokens());
             s.AddSingleton<IProfileReader>(Profiles);
             s.AddSingleton<IClusterSender>(Cluster);
+            s.AddSingleton(new Infrastructure.Proxy.ProxyAllowlist(Upstreams));
             s.AddSingleton<IStartupFilter, LocalPortFilter>();
         });
     }
@@ -134,6 +147,29 @@ public sealed class TestHost : WebApplicationFactory<Program>
         {
             LastFilter = filter;
             return Task.FromResult(new SpotPage(99, false, []));
+        }
+    }
+
+    /// <summary>Keeps the formatted log lines (with exceptions) of every category.</summary>
+    public sealed class LogSink : ILoggerProvider
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Lines { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new Logger(this, categoryName);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Logger(LogSink sink, string category) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                sink.Lines.Enqueue($"{category}: {formatter(state, exception)} {exception}");
         }
     }
 }

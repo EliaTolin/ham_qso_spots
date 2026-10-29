@@ -1,6 +1,6 @@
 # Client protocol
 
-How an app (or any client) gets spots from the spots server, and how a client without telnet sends one ([`POST /v1/dx/spots`](#rest-post-v1dxspots-sending-a-dx-spot)). Two channels, one message shape:
+How an app (or any client) gets spots from the spots server, how a client without telnet sends one ([`POST /v1/dx/spots`](#rest-post-v1dxspots-sending-a-dx-spot)), and how the web app reaches services that send no CORS headers ([the proxy](#rest-the-proxy-v1proxy)). Two channels, one message shape:
 
 - **REST** `GET https://spot.hamqso.app/v1/spots` gives the starting list, or what changed since the last spot the client saw.
 - **MQTT** `wss://spot.hamqso.app/mqtt` pushes the news live, as soon as a spot is saved.
@@ -272,6 +272,61 @@ Answer `200`:
 | `503` | `{"error": "busy"}` | Try again later (no `Retry-After`). The server is full: more than **60 spots a minute from all users together** (only spots that passed every other check count), or 50 sessions open and all sending at that moment; or the login is held by another user. It counts against the user's own limit like any attempt past it |
 
 The order of the checks: token (401), reader or anonymous (403), line and SSID (400), user limit (429), profile (422), server limit (503, checked last so failed or refused attempts never use it), login of another user (503), sessions (503), node (502). Every request that gets past the token is logged on the server (user id, login, line, outcome).
+
+## REST: the proxy (`/v1/proxy`)
+
+QRZ Logbook, eQSL, HRDLog, SOTA and a few other services the app uses send no CORS headers, so a browser cannot call them. The web app calls them **through the server**, which passes the request on and the answer back, only to the services of a fixed list (F58 decision 16):
+
+```
+POST https://spot.hamqso.app/v1/proxy/qrz-logbook/api
+X-HamQSO-Auth: Bearer <Supabase access_token>
+Authorization: ...                         (for the service, if it wants one: passed on untouched)
+Content-Type: application/x-www-form-urlencoded
+
+KEY=...&ACTION=INSERT&ADIF=...
+```
+
+goes to `POST https://logbook.qrz.com/api` with the same body.
+
+| `{service}` | Goes to |
+|---|---|
+| `qrz-logbook` | `https://logbook.qrz.com` |
+| `hrdlog` | `https://robot.hrdlog.net` |
+| `eqsl` | `https://www.eqsl.cc` |
+| `sotawatch` | `https://sotawatch.sota.org.uk` |
+| `sota-sso` | `https://sso.sota.org.uk` |
+| `sotadata` | `https://www.sotadata.org.uk` |
+| `hamqsl` | `https://www.hamqsl.com` |
+| `country-files` | `https://www.country-files.com` |
+
+- **URL**: `GET|POST|PUT|DELETE /v1/proxy/{service}/{path}?{query}` → `{base}/{path}?{query}`. The path is escaped segment by segment and always stays on the service's host; `.` and `..` segments are refused. The query goes as the client encoded it.
+- **Who**: HamQSO users, anonymous ones included (the app's integrations do not need an account). The Supabase token goes in **`X-HamQSO-Auth: Bearer <token>`**, never in `Authorization`, which belongs to the service. Tokens of the reader projects (HamQRG) are refused.
+- **What goes to the service**: method, path, query, body, and only the headers `Content-Type`, `Accept`, `Authorization`, `User-Agent`. No cookies, no other header.
+- **What comes back**: the service's status, `Content-Type` and body, as they are (also its errors: a `401` of QRZ is a `401` here). No other header of the service (no cookies).
+- **Redirects**: followed only on the same host (scheme, host and port), at most 5; 301/302/303 become a `GET` without body, 307/308 repeat the request. A redirect to another host is never followed (`502 upstream_redirect`).
+- **Limits**: request and answer body at most 10 MB; the service must answer within 30 s; **120 calls a minute per user**.
+- **Privacy**: the server keeps nothing and logs only user id, service, method, status, duration and sizes; never credentials, path, query, headers or bodies (see [architecture.md](architecture.md#the-proxy-nothing-kept-nothing-logged)).
+
+### Errors of the proxy itself
+
+Every other answer is the service's own.
+
+| Status | Body | When |
+|---|---|---|
+| `401` | empty | No `X-HamQSO-Auth: Bearer`, or not a valid Supabase token |
+| `403` | `{"error": "not_allowed"}` | A token of a reader project (HamQRG) |
+| `404` | `{"error": "unknown_service"}` | `{service}` is not in the list |
+| `413` | `{"error": "too_large"}` | The request body is over 10 MB |
+| `429` | `{"error": "rate_limited", "retry_after_s": N}` + `Retry-After` | Over 120 calls a minute |
+| `400` | `{"error": "bad_path"}` | A `.`/`..` segment or a malformed query |
+| `502` | `{"error": "upstream_unavailable"}` | The service cannot be reached, or its answer broke off |
+| `502` | `{"error": "upstream_too_large"}` | The answer is over 10 MB |
+| `502` | `{"error": "upstream_redirect"}` | The service redirects to another host (or more than 5 times) |
+| `504` | `{"error": "upstream_timeout"}` | No answer within 30 s |
+
+## CORS
+
+The HTTP API (`/v1/spots`, `/v1/dx/spots`, `/v1/proxy`) answers browsers of the configured origins (`Cors:Origins`; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`; preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.
 
 ## Limits and attribution
 

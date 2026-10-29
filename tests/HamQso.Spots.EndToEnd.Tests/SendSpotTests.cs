@@ -3,11 +3,6 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using HamQso.Spots.Infrastructure.Tests.Sending;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 
 namespace HamQso.Spots.EndToEnd.Tests;
 
@@ -24,14 +19,14 @@ public sealed class SendSpotTests : IAsyncLifetime
     private const string Line = "DX 14025.0 Q0E2F e2e test";
 
     private readonly FakeDxNode node = new();
-    private ServerWithFakeNode server = null!;
+    private LocalServer server = null!;
     private TestUser user = null!;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     public async ValueTask InitializeAsync()
     {
-        server = new ServerWithFakeNode(node.Port);
+        server = new LocalServer { DxNodePort = node.Port };
         user = await TestUser.CreateWithAccountAsync(Ct);
     }
 
@@ -121,19 +116,5 @@ public sealed class SendSpotTests : IAsyncLifetime
         Assert.Equal("rate_limited", (await Body(response)).GetProperty("error").GetString());
         Assert.NotNull(response.Headers.RetryAfter);
         Assert.Equal(4, Assert.Single(node.Connections).Lines.Count);
-    }
-
-    /// <summary>The server with the production Supabase project and the DX node on loopback; no sources, archive or broker.</summary>
-    private sealed class ServerWithFakeNode(int nodePort) : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            builder.UseSetting("ConnectionStrings:Spots", "Host=localhost;Database=none");
-            builder.UseSetting("Supabase:Url", E2eSettings.Supabase.ToString());
-            builder.UseSetting("Supabase:SecretKey", E2eSettings.SecretKey);
-            builder.UseSetting("DxSend:Host", "127.0.0.1");
-            builder.UseSetting("DxSend:Port", nodePort.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            builder.ConfigureTestServices(s => s.RemoveAll<IHostedService>());
-        }
     }
 }

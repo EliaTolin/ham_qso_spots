@@ -12,6 +12,7 @@ DX cluster nodes ──────►│ server (.NET 11)                      
 HamQTH, DX Summit ─────►│   sources → IngestSpots → Postgres (dx_spots, 7 days)                               │
 POTA, SOTA, WWFF ──────►│                        └→ Mosquitto (MQTT news) ◄── mosquitto-go-auth ── /mqtt/*    │
                         │   GET /v1/spots (lists)  POST /v1/dx/spots (send, telnet as the user)  GET /health  │
+                        │   /v1/proxy/{service} (web app → QRZ, eQSL, SOTA… without CORS)                     │
                         └──────────┬──────────────────────────────┬───────────────────────────────────────────┘
                                    │ alert_spots (secret key)     │ wss://spot.hamqso.app/mqtt, https://spot.hamqso.app/v1/spots
                                    ▼                              ▼
@@ -21,7 +22,7 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 
 | Container | Image | Role |
 |---|---|---|
-| `server` | this repo (`Dockerfile`) | sources, ingestion, archive, publishing, REST API, spot sending for the web app, broker auth backend, health |
+| `server` | this repo (`Dockerfile`) | sources, ingestion, archive, publishing, REST API, spot sending and CORS proxy for the web app, broker auth backend, health |
 | `postgres` | `postgres:17-alpine` | the archive (`dx_spots`), 7 days, volume `postgres-data` |
 | `mosquitto` | `deploy/mosquitto/Dockerfile` (`iegomez/mosquitto-go-auth` + config) | MQTT broker for the apps; no persistence |
 
@@ -30,9 +31,9 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 | Project | Contains | Depends on |
 |---|---|---|
 | `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, duplicate rule, enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
-| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`), use cases (`IngestSpots`, `GetSpots`, `SendDxSpot`), in-memory dedup, spot rate limit, broker access rules, health registry | Domain |
-| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`) | Application |
-| `HamQso.Spots.Host` | Composition root, background workers, endpoints (`/health`, `/v1/spots`, `/v1/dx/spots`, `/mqtt/*`) | Application, Infrastructure |
+| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`), use cases (`IngestSpots`, `GetSpots`, `SendDxSpot`, `ForwardToUpstream`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
+| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`), proxy allowlist and forwarding (`Proxy/`) | Application |
+| `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/dx/spots`, `/v1/proxy/*`, `/mqtt/*`) | Application, Infrastructure |
 
 ## Sources
 
@@ -116,13 +117,26 @@ The login is the callsign of the user's profile, and nobody checks that the call
 
 There is **no limit per callsign** on purpose: since callsigns are not verified, a limit per callsign would let anyone use up a real station's budget by writing its callsign in their profile (griefing). A per-callsign rule can come back only together with callsign verification.
 
+## The proxy: nothing kept, nothing logged
+
+On the phone the app talks to QRZ Logbook, eQSL, HRDLog, SOTA (SSO, SOTAwatch, sotadata), hamqsl.com and country-files.com directly; the credentials (QRZ API key, eQSL and HRDLog passwords, SOTA token) stay on the device. Those services send no CORS headers, so in a browser the web app must go through the server (F58 decision 16): `ANY /v1/proxy/{service}/{path}`, contract in [protocol.md](protocol.md#rest-the-proxy-v1proxy).
+
+`ForwardToUpstream` (use case: per-user limit, the log line) → `UpstreamProxy` (allowlist, forwarding) → the service. The rule: **the server passes the request on and keeps nothing**.
+
+- Credentials travel in the query (QRZ `KEY=`, eQSL `password=`), in the body or in `Authorization`. The server never writes them anywhere: no store, no cache, and **no log of path, query, headers or bodies**. The only log line is `Proxy <user> <service> <method> -> <status> in <ms> ms, <up> B up, <down> B down`.
+- How the rule is kept: the forwarding `HttpClient` has no loggers (`RemoveAllLoggers`), because its request lines carry the full address with the query; `Microsoft.AspNetCore` logs stay at `Warning` (at `Information` and below the request line, with the query, is logged); errors of the service are logged by their kind (`UpstreamTimeout`), never by their exception message (which may hold the address). A Host test sends secrets through the proxy and fails if any of them is in the log.
+- Why: these are the user's accounts on other services. Keeping or logging them would make the server a place to steal them from, and the app's privacy promise ("credentials stay on your device") must stay true on the web: they only pass through.
+- Only the listed hosts, in code, not configuration: the proxy cannot be turned into an open relay. The path cannot change the host; redirects are followed only on the same host; only `Content-Type`, `Accept`, `Authorization`, `User-Agent` go out (no cookies: the server has no session with the services); only status, `Content-Type` and body come back.
+- Anonymous HamQSO users may use it (the integrations need no HamQSO account); its own token travels in `X-HamQSO-Auth` because `Authorization` belongs to the service. 120 calls a minute per user, bodies up to 10 MB, 30 s.
+
 ## Access control
 
 - **Apps** connect to Mosquitto with the Supabase access token as password. `mosquitto-go-auth` (HTTP backend) asks the server: `POST /mqtt/user` (who may connect), `/mqtt/acl` (who may read or write a topic), `/mqtt/superuser` (always no).
 - **Rules** (`MqttAccess`): a valid Supabase token may read and subscribe `spots/…`; only the `ingestor` account (password from configuration, compared in constant time) may write; nobody may use other topics; the name `ingestor` never logs in with a token.
 - **Sending spots**: only tokens of the HamQSO project of signed-in users (`TokenUser.IsReader` and `IsAnonymous` false); the login is always the profile's callsign, never one from the request.
 - **Tokens** (`SupabaseJwtValidator`): ES256 signature checked with the public keys (JWKS) of the project that issued the token, issuer `https://<project>.supabase.co/auth/v1`, audience `authenticated`, expiry. Accepted projects: HamQSO (`Supabase:Url`) and the readers (`Supabase:ReaderUrls`, today HamQRG `dhmzkhipxvxtbbchvquc`), which may only read like HamQSO users; the alerts stay on HamQSO. A token of any other issuer is refused before any request, so keys are fetched only from the configured projects. Keys cached 10 minutes per project; an unknown key id forces a refresh at most once a minute per project; if Supabase does not answer, the cached keys are kept (tokens signed with them are still accepted, others are refused).
-- **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`, `/v1/dx/spots`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
+- **CORS**: the HTTP API answers browsers of the origins in `Cors:Origins` only (see [protocol.md](protocol.md#cors)); no cookies are used.
+- **Ports**: `8080` is public (Traefik routes `/` to it: `/health`, `/v1/spots`, `/v1/dx/spots`, `/v1/proxy/*`); `8081` only in the Docker network (`/mqtt/*` for Mosquitto). The `/mqtt` endpoints check the local port of the connection, not the `Host` header.
 - `/health` is public and shows only the state of each entry, never error messages (those go to the log).
 
 ## Health
@@ -142,3 +156,4 @@ There is **no limit per callsign** on purpose: since callsigns are not verified,
 | Alerts stay in Supabase (`alert_spots`) | Matching, pushes, US states and statistics in one place for the cron, the server and the self-spots |
 | .NET 11 | Chosen to try .NET; RC "go-live" in October 2026, final in November 2026 |
 | Web spots through the server, with the profile's callsign | F58 decisions 5 and 13: a browser has no telnet; nobody spots with someone else's callsign; few spots per user; every send logged |
+| A pass-through proxy for services without CORS, nothing logged | F58 decision 16: everything of the app works on the web; the user's credentials of other services only pass through |

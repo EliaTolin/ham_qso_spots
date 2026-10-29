@@ -2,6 +2,7 @@ using HamQso.Spots.Application.Access;
 using HamQso.Spots.Application.Dedup;
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
+using HamQso.Spots.Application.Proxy;
 using HamQso.Spots.Application.Reading;
 using HamQso.Spots.Application.Sending;
 using HamQso.Spots.Application.Ports;
@@ -10,10 +11,12 @@ using HamQso.Spots.Infrastructure.Auth;
 using HamQso.Spots.Infrastructure.Mqtt;
 using HamQso.Spots.Infrastructure.Postgres;
 using HamQso.Spots.Infrastructure.Profiles;
+using HamQso.Spots.Infrastructure.Proxy;
 using HamQso.Spots.Infrastructure.Sending;
 using HamQso.Spots.Infrastructure.Sources;
 using HamQso.Spots.Infrastructure.Sources.Telnet;
 using Microsoft.Extensions.Options;
+using System.Net;
 using Npgsql;
 
 namespace HamQso.Spots.Host;
@@ -50,6 +53,22 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IClusterSender, TelnetClusterSender>();
         services.AddSingleton<SpotRateLimiter>();
         services.AddSingleton<SendDxSpot>();
+
+        services.AddApiCors();
+        services.AddOptions<ProxyOptions>().BindConfiguration(ProxyOptions.Section).ValidateDataAnnotations().ValidateOnStart();
+        services.AddSingleton(ProxyAllowlist.Production);
+        // No cookies, no automatic redirects (only same-host ones, by hand) and no
+        // HttpClient logging: its request lines would carry query strings with keys.
+        services.AddHttpClient<IUpstreamProxy, UpstreamProxy>(UpstreamProxy.ClientName, c => c.Timeout = Timeout.InfiniteTimeSpan)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false,
+                AutomaticDecompression = DecompressionMethods.All,
+            })
+            .RemoveAllLoggers();
+        services.AddSingleton<ProxyRateLimiter>();
+        services.AddTransient<ForwardToUpstream>();
 
         services.AddSingleton(sp =>
         {

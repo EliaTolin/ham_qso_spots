@@ -4,8 +4,8 @@ using System.Text.Json;
 namespace HamQso.Spots.EndToEnd.Tests;
 
 /// <summary>
-/// An anonymous HamQSO user made for one test run, Pro (so its alerts can fire)
-/// and without devices (so no push reaches a phone). Deleting it deletes its
+/// A HamQSO user made for one test run (anonymous, or with an account),
+/// Pro (so its alerts can fire) and without devices (so no push reaches a phone). Deleting it deletes its
 /// subscription, alerts and alert events (on delete cascade).
 /// </summary>
 public sealed class TestUser : IAsyncDisposable
@@ -26,11 +26,40 @@ public sealed class TestUser : IAsyncDisposable
 
     public static async Task<TestUser> CreateAsync(CancellationToken ct)
     {
-        using var anon = new HttpClient { BaseAddress = E2eSettings.Supabase };
-        anon.DefaultRequestHeaders.Add("apikey", E2eSettings.PublishableKey);
+        using var anon = Public();
         using var signup = await anon.PostAsync("auth/v1/signup", Json(new { }), ct);
-        signup.EnsureSuccessStatusCode();
-        using var session = JsonDocument.Parse(await signup.Content.ReadAsStringAsync(ct));
+        return await FromSessionAsync(signup, ct);
+    }
+
+    /// <summary>
+    /// A signed-in (not anonymous) user, as after Apple/Google sign-in: made with
+    /// the Auth admin API, confirmed, no e-mail sent; deleted like the others.
+    /// </summary>
+    public static async Task<TestUser> CreateWithAccountAsync(CancellationToken ct)
+    {
+        var email = $"e2e-{Guid.NewGuid():N}@example.com";
+        var password = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+        using (var admin = Admin())
+        {
+            using var created = await admin.PostAsync("auth/v1/admin/users", Json(new { email, password, email_confirm = true }), ct);
+            created.EnsureSuccessStatusCode();
+        }
+        using var anon = Public();
+        using var login = await anon.PostAsync("auth/v1/token?grant_type=password", Json(new { email, password }), ct);
+        return await FromSessionAsync(login, ct);
+    }
+
+    private static HttpClient Public()
+    {
+        var http = new HttpClient { BaseAddress = E2eSettings.Supabase };
+        http.DefaultRequestHeaders.Add("apikey", E2eSettings.PublishableKey);
+        return http;
+    }
+
+    private static async Task<TestUser> FromSessionAsync(HttpResponseMessage auth, CancellationToken ct)
+    {
+        auth.EnsureSuccessStatusCode();
+        using var session = JsonDocument.Parse(await auth.Content.ReadAsStringAsync(ct));
         var token = session.RootElement.GetProperty("access_token").GetString()!;
         var id = session.RootElement.GetProperty("user").GetProperty("id").GetString()!;
 
@@ -50,6 +79,15 @@ public sealed class TestUser : IAsyncDisposable
         response.EnsureSuccessStatusCode();
         using var rows = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         return rows.RootElement[0].GetProperty("id").GetString()!;
+    }
+
+    /// <summary>The callsign of the user's profile, as the app saves it (null: none).</summary>
+    public async Task SetCallsignAsync(string? callsign, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "rest/v1/profiles") { Content = Json(new { id = Id, callsign }) };
+        request.Headers.Add("Prefer", "resolution=merge-duplicates");
+        using var response = await admin.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task<JsonElement[]> AlertEventsAsync(CancellationToken ct)

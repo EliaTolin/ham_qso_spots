@@ -1,0 +1,31 @@
+{
+  "_comment": "Base (home) callsign: parts split on '/', empty parts dropped; one part is the base; otherwise the longest part with a digit, on a tie the later one (the prefix comes first); no part with a digit: the first part. Uppercase. Shared contract: the same file is ham_qso_flutter/test/fixtures/base_callsign_cases.json (app baseCallsign, lib/common/utils/callsign.dart) and ham_qso_supabase/supabase/functions/_shared/base_callsign_cases.json (public.base_callsign, pgTAP base_callsign_test.sql): keep them identical.",
+  "cases": [
+    {"input": "VP2E/W1AW", "expected": "W1AW"},
+    {"input": "W1AW/VP2E", "expected": "VP2E"},
+    {"input": "VP2E/W1AW/P", "expected": "W1AW"},
+    {"input": "KH6/K1A", "expected": "K1A"},
+    {"input": "ABC/P", "expected": "ABC"},
+    {"input": "T8/K5", "expected": "K5"},
+    {"input": "ea8/iu4vrb/p", "expected": "IU4VRB"},
+    {"input": "EA8/IU4VRB/P", "expected": "IU4VRB"},
+    {"input": "EA8/IK2ABC/P", "expected": "IK2ABC"},
+    {"input": "EA8/K1ABC/P", "expected": "K1ABC"},
+    {"input": "3D2/IN3FOB", "expected": "IN3FOB"},
+    {"input": "IN3FOB/P", "expected": "IN3FOB"},
+    {"input": "IZ9TST/P", "expected": "IZ9TST"},
+    {"input": "IK2ABC/QRP", "expected": "IK2ABC"},
+    {"input": "IN3FOB/LH", "expected": "IN3FOB"},
+    {"input": "IN3FOB/P/MM", "expected": "IN3FOB"},
+    {"input": "IK2ABC/8", "expected": "IK2ABC"},
+    {"input": "W1AW/4", "expected": "W1AW"},
+    {"input": "W1AW/4/P", "expected": "W1AW"},
+    {"input": "K1ABC", "expected": "K1ABC"},
+    {"input": "K5SNS", "expected": "K5SNS"},
+    {"input": "ik2abc", "expected": "IK2ABC"},
+    {"input": "3y0j", "expected": "3Y0J"},
+    {"input": "IN3FOB/", "expected": "IN3FOB"},
+    {"input": "/IN3FOB", "expected": "IN3FOB"},
+    {"input": "", "expected": ""}
+  ]
+}

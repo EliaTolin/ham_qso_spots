@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
+using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Infrastructure.Alerts;
 using HamQso.Spots.Infrastructure.Auth;
 using Microsoft.Extensions.Options;
@@ -51,7 +52,7 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         readerKey.Dispose();
     }
 
-    private Task<bool> Check(string token) => validator.IsValidAsync(token, TestContext.Current.CancellationToken);
+    private async Task<bool> Check(string token) => await validator.ValidateAsync(token, TestContext.Current.CancellationToken) is not null;
 
     [Fact]
     public async Task A_token_of_a_logged_in_HamQSO_user_is_accepted() =>
@@ -141,6 +142,26 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_valid_token_tells_the_user_id_and_whether_it_comes_from_a_reader_project()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var hamqso = await validator.ValidateAsync(Token(projectKey, "key-1"), ct);
+        var reader = await validator.ValidateAsync(Token(readerKey, "reader-1", issuer: ReaderIssuer), ct);
+
+        Assert.Equal(new TokenUser("8f2c-user-id", false, false), hamqso);
+        Assert.Equal(new TokenUser("8f2c-user-id", true, false), reader);
+    }
+
+    [Fact]
+    public async Task An_anonymous_user_is_told_by_the_is_anonymous_claim()
+    {
+        var user = await validator.ValidateAsync(Token(projectKey, "key-1", anonymous: true), TestContext.Current.CancellationToken);
+
+        Assert.True(user!.IsAnonymous);
+    }
+
+    [Fact]
     public async Task When_Supabase_does_not_answer_the_token_is_refused_without_an_error()
     {
         jwks.Fail = true;
@@ -148,7 +169,7 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
         Assert.False(await Check(Token(projectKey, "key-1")));
     }
 
-    private static string Token(ECDsa key, string kid, DateTimeOffset? expires = null, string issuer = Issuer, string audience = "authenticated") =>
+    private static string Token(ECDsa key, string kid, DateTimeOffset? expires = null, string issuer = Issuer, string audience = "authenticated", bool anonymous = false) =>
         new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }.CreateToken(new SecurityTokenDescriptor
         {
             Issuer = issuer,
@@ -156,7 +177,7 @@ public sealed class SupabaseJwtValidatorTests : IDisposable
             IssuedAt = Now.AddMinutes(-1).UtcDateTime,
             NotBefore = Now.AddMinutes(-1).UtcDateTime,
             Expires = (expires ?? Now.AddHours(1)).UtcDateTime,
-            Claims = new Dictionary<string, object> { ["sub"] = "8f2c-user-id", ["role"] = "authenticated" },
+            Claims = new Dictionary<string, object> { ["sub"] = "8f2c-user-id", ["role"] = "authenticated", ["is_anonymous"] = anonymous },
             SigningCredentials = new SigningCredentials(new ECDsaSecurityKey(key) { KeyId = kid }, SecurityAlgorithms.EcdsaSha256),
         });
 

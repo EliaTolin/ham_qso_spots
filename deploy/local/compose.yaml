@@ -1,0 +1,41 @@
+# Local stack for scripts/run-local.sh: the archive and the broker of the spots
+# server in Docker; the server itself runs on this machine (dotnet run), so the
+# broker asks it for authentication at host.docker.internal. Only on 127.0.0.1.
+# Production is compose.yaml at the repo root, not this file.
+name: hamqso-spots-local
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: spots
+      POSTGRES_USER: spots
+      POSTGRES_PASSWORD: spots
+    ports:
+      - "127.0.0.1:${LOCAL_POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spots -d spots"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  mosquitto:
+    # The production image and configuration; only the address of the auth backend changes.
+    build: ../mosquitto
+    environment:
+      AUTH_PORT: ${LOCAL_INTERNAL_PORT:-18081}
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - sh
+      - -c
+      - >-
+        sed -e 's/^auth_opt_http_host .*/auth_opt_http_host host.docker.internal/'
+        -e "s/^auth_opt_http_port .*/auth_opt_http_port $${AUTH_PORT}/"
+        /etc/mosquitto/mosquitto.conf > /tmp/mosquitto.conf
+        && exec /usr/sbin/mosquitto -c /tmp/mosquitto.conf
+    command: []
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${LOCAL_MQTT_PORT:-18883}:1883"
+      - "127.0.0.1:${LOCAL_WS_PORT:-19001}:9001"

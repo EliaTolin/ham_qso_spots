@@ -29,7 +29,7 @@ public sealed class MqttAccess(ITokenValidator tokens, string publisherUsername,
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)) return false;
         // The publisher name is reserved: it never logs in with a token.
         if (username == publisherUsername) return publisherPassword.Length > 0 && FixedTimeEquals(password, publisherPassword);
-        return await tokens.IsValidAsync(password, cancellationToken).ConfigureAwait(false);
+        return await tokens.ValidateAsync(password, cancellationToken).ConfigureAwait(false) is not null;
     }
 
     /// <summary>Called only for clients that passed <see cref="AuthenticateAsync"/>.</summary>

@@ -12,9 +12,15 @@ builder.WebHost.ConfigureKestrel(kestrel =>
 builder.Services.AddSpotsServer(builder.Configuration);
 
 var app = builder.Build();
+FeatureSwitches.LogAtStart(app.Services, app.Logger);
+app.UseForwardedHeaders();
+app.UseCors();
 app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = WriteHealth });
 app.MapMqttAuth(ports.InternalPort);
 app.MapSpotsApi();
+app.MapSendSpotApi();
+app.MapProxyApi();
+app.MapRbnApi();
 await app.RunAsync();
 
 static Task WriteHealth(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)

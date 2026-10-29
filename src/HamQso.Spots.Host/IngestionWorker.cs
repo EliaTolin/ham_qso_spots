@@ -17,6 +17,7 @@ public sealed partial class IngestionWorker(
     IngestSpots ingest,
     ISpotArchiveSchema schema,
     SourceHealthRegistry health,
+    IAlertNotifier alerts,
     TimeProvider time,
     ILogger<IngestionWorker> logger) : BackgroundService
 {
@@ -37,7 +38,8 @@ public sealed partial class IngestionWorker(
         var list = sources.ToArray();
         foreach (var source in list) health.Register(source.Name);
         health.Register(MqttSpotPublisher.HealthName);
-        health.Register(SupabaseAlertNotifier.HealthName);
+        // Alerts off (no secret key, a local run): no "alerts" entry, rather than one "starting" forever.
+        if (alerts is not NullAlertNotifier) health.Register(SupabaseAlertNotifier.HealthName);
         health.Register(PostgresSpotStore.HealthName);
         await Task.WhenAll(list.Select(s => RunAsync(s, stoppingToken)));
     }

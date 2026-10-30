@@ -373,7 +373,7 @@ Latitude and longitude have at most 5 decimals; a tab or a line break inside a n
 
 ## CORS
 
-The HTTP API (`/v1/spots`, `/v1/dx/spots`, `/v1/proxy`, `/v1/rbn`) answers browsers of the configured origins (`Cors:Origins`: in production **`https://app.hamqso.app`**, the web app; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`; preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.
+The HTTP API (`/v1/spots`, `/v1/references/catalog`, `/v1/dx/spots`, `/v1/proxy`, `/v1/rbn`) answers browsers of the configured origins (`Cors:Origins`: in production **`https://app.hamqso.app`**, the web app; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`, `If-None-Match`; exposed response headers `ETag`, `X-Reference-Count` (the catalog); preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.
 
 ## Limits and attribution
 

@@ -353,6 +353,24 @@ Read the body as a stream of lines: `data: <line>` is a spot, `event: end` close
 | `403` | `{"error": "account_required"}` / `{"error": "not_allowed"}` | Anonymous user / reader project |
 | `429` | `{"error": "too_many_streams"}` | 2 streams of this user already open |
 
+## REST: `GET /v1/references/catalog` (the offline reference catalog)
+
+F53.3. Every active POTA park, SOTA summit and WWFF area of HamQSO (about 340,000, about 7 MB), for the apps to search, suggest "near you" and name references without the network. The server rebuilds it once a week from `xota_references`; the apps download it once every three months.
+
+- `Authorization: Bearer <Supabase access token>`, anonymous users included. Without a valid token: `401`.
+- `200`: the file, `Content-Type: application/gzip`, **no** `Content-Encoding` (the body is the gzip itself; `Content-Length` is its size, known before the body: an app on a metered network can stop there). Headers: `ETag`, `Last-Modified` (when it was built), `X-Reference-Count`.
+- `If-None-Match: <ETag>` of the file the app has: `304` without body when the catalog has not changed. The ETag depends on the references only: the same catalog rebuilt a week later keeps it.
+- `503` with `Retry-After: 3600` before the server has its first file (first start, or a local run without the Supabase secret key).
+
+The file (gzip of UTF-8 text): a header line `HAMQSO-REFERENCES<TAB>1<TAB><built at, ISO 8601 UTC><TAB><count>`, then one reference per line in code order, ten fields separated by tabs, empty when unknown:
+
+```
+ref  program  name  location  dxcc  grid  lat  lon  altitude_m  points
+IT-1271  POTA  Torbiere del Lavaze'  Trentino-Alto Adige, Italy  248  JN56NH  46.35541  11.49127
+```
+
+Latitude and longitude have at most 5 decimals; a tab or a line break inside a name or a location becomes a space. An app must skip lines with fewer than ten fields and refuse a file whose header is not `HAMQSO-REFERENCES` version 1.
+
 ## CORS
 
 The HTTP API (`/v1/spots`, `/v1/dx/spots`, `/v1/proxy`, `/v1/rbn`) answers browsers of the configured origins (`Cors:Origins`: in production **`https://app.hamqso.app`**, the web app; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`; preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.

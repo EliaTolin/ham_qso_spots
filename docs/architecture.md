@@ -34,7 +34,7 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 | `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, base callsign (shared cases with the app and the backend), duplicate rule, enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
 | `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`, `IRbnFeed`), use cases (`IngestSpots`, `GetSpots`, `SendDxSpot`, `ForwardToUpstream`, `WatchRbn`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
 | `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`), proxy allowlist and forwarding (`Proxy/`), shared RBN telnet feed (`Rbn/`) | Application |
-| `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/dx/spots`, `/v1/proxy/*`, `/v1/rbn/*`, `/mqtt/*`) | Application, Infrastructure |
+| `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/references/catalog`, `/v1/dx/spots`, `/v1/proxy/*`, `/v1/rbn/*`, `/mqtt/*`) | Application, Infrastructure |
 
 ## Sources
 
@@ -151,6 +151,10 @@ Remaining trade-offs, accepted (Elia, F58: no more hardening rounds on the proxy
 - An account is easy to make (Apple, Google): a determined abuser can move to the accounts' budget, at the cost of tying the calls to an account that can be removed.
 - The limits live in memory: a restart resets them.
 - If misuse shows up in the log (many calls of one service), the next step is an account for the heavy services, not more machinery here.
+
+## Reference catalog (F53.3)
+
+The apps keep the world reference catalog offline (search, "near you" and names in the field). Supabase is on the Free plan (5 GB of traffic a month), so the file comes from here: `ReferenceCatalogWorker` asks `RefreshReferenceCatalog` at start and every 6 hours; the file is rebuilt only when it is older than 7 days, reading every active row of `xota_references` with the secret key (`SupabaseReferenceCatalogSource`, PostgREST pages of 1,000 after the last code), written by `ReferenceCatalogFormat` (gzip of a tab-separated text, ETag from the references only) and kept in Postgres (`reference_catalog`, one row, `PostgresReferenceCatalogStore`) so a restart serves it at once. A failed or short read (fewer than 100,000 references) keeps the file there is. Served by `GET /v1/references/catalog` ([protocol.md](protocol.md)). Without the secret key (a local run) there is no catalog: `503`.
 
 ## Access control
 

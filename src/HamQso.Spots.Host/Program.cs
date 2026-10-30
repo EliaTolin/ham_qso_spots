@@ -18,6 +18,7 @@ app.UseCors();
 app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = WriteHealth });
 app.MapMqttAuth(ports.InternalPort);
 app.MapSpotsApi();
+app.MapReferenceCatalogApi();
 app.MapSendSpotApi();
 app.MapProxyApi();
 app.MapRbnApi();

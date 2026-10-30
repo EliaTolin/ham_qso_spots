@@ -185,7 +185,7 @@ A message on `spots/dx/80m/digital`:
       "callsign": "SQ8V",
       "frequency_khz": 3573,
       "spot_time": "2026-10-27T18:53:00+00:00",
-      "feeds": ["DA0BCC-7", "IK5PWJ-6", "IZ8MBW-6", "DXFun", "HamQTH", "DXSummit"],
+      "feeds": ["IK5PWJ-6", "IZ8MBW-6", "DXFun", "HamQTH", "DXSummit"],
       "spotters": ["SP7ROM"],
       "band": "80m",
       "mode": "FT8",

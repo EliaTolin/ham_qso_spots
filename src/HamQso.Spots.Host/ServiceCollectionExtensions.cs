@@ -1,4 +1,5 @@
 using HamQso.Spots.Application.Access;
+using HamQso.Spots.Application.Catalog;
 using HamQso.Spots.Application.Dedup;
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
@@ -9,6 +10,7 @@ using HamQso.Spots.Application.Sending;
 using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Infrastructure.Alerts;
 using HamQso.Spots.Infrastructure.Auth;
+using HamQso.Spots.Infrastructure.Catalog;
 using HamQso.Spots.Infrastructure.Mqtt;
 using HamQso.Spots.Infrastructure.Postgres;
 using HamQso.Spots.Infrastructure.Profiles;
@@ -104,6 +106,17 @@ public static class ServiceCollectionExtensions
                 http.CreateClient,
                 sp.GetRequiredService<TimeProvider>());
         });
+
+        // F53.3: the world reference catalog for the apps, rebuilt once a week
+        // from HamQSO (needs the secret key; a local run serves none: 503).
+        services.AddSingleton<CurrentReferenceCatalog>();
+        if (!string.IsNullOrWhiteSpace(configuration[$"{SupabaseOptions.Section}:SecretKey"]))
+        {
+            services.AddHttpClient<IReferenceCatalogSource, SupabaseReferenceCatalogSource>(c => c.Timeout = TimeSpan.FromMinutes(2));
+            services.AddSingleton<IReferenceCatalogStore, PostgresReferenceCatalogStore>();
+            services.AddSingleton<RefreshReferenceCatalog>();
+            services.AddHostedService<ReferenceCatalogWorker>();
+        }
 
         services.AddHostedService<IngestionWorker>();
         services.AddHostedService<RetentionWorker>();

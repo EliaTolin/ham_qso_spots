@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 
 namespace HamQso.Spots.Host.Tests;
@@ -28,6 +29,7 @@ public sealed class CorsTests : IDisposable
     [Theory]
     [InlineData("/v1/dx/spots", "POST", "authorization,content-type")]
     [InlineData("/v1/spots", "GET", "authorization")]
+    [InlineData("/v1/references/catalog", "GET", "authorization,if-none-match")]
     [InlineData("/v1/proxy/qrz-logbook/api", "PUT", "authorization,content-type,x-hamqso-auth")]
     [InlineData("/v1/proxy/sotawatch/api/spots", "DELETE", "x-hamqso-auth")]
     public async Task The_web_app_origin_passes_the_preflight_of_every_endpoint(string path, string method, string headers)
@@ -49,7 +51,7 @@ public sealed class CorsTests : IDisposable
 
         Assert.Equal("", Header(evil, "Access-Control-Allow-Origin"));
         // The browser refuses what is not listed (another header, PATCH).
-        Assert.Equal(["Authorization", "Content-Type", "X-HamQSO-Auth"], Header(ok, "Access-Control-Allow-Headers").Split(','));
+        Assert.Equal(["Authorization", "Content-Type", "X-HamQSO-Auth", "If-None-Match"], Header(ok, "Access-Control-Allow-Headers").Split(','));
         Assert.Equal(["GET", "POST", "PUT", "DELETE", "OPTIONS"], Header(ok, "Access-Control-Allow-Methods").Split(','));
     }
 
@@ -98,4 +100,20 @@ public sealed class CorsTests : IDisposable
     [InlineData("", false)]
     public void Origins_match_exactly_or_with_any_port(string origin, bool allowed) =>
         Assert.Equal(allowed, ApiCors.IsAllowed(origin, ["https://app.hamqso.example", "http://localhost:*", "http://127.0.0.1:*"]));
+
+    [Fact]
+    public async Task The_web_app_reads_the_ETag_and_the_count_of_the_catalog()
+    {
+        host.Services.GetRequiredService<Application.Catalog.CurrentReferenceCatalog>().File = Domain.References.ReferenceCatalogFormat.Write(
+            [new Domain.References.CatalogReference("IT-1271", "POTA", "Park", null, null, null, null, null, null, null)],
+            new DateTimeOffset(2026, 10, 30, 3, 0, 0, TimeSpan.Zero));
+        var http = host.Client();
+        http.DefaultRequestHeaders.Add("Origin", WebApp);
+
+        using var response = await http.GetAsync(new Uri("/v1/references/catalog", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        var exposed = Header(response, "Access-Control-Expose-Headers").Split(',');
+        Assert.Contains("ETag", exposed);
+        Assert.Contains("X-Reference-Count", exposed);
+    }
 }

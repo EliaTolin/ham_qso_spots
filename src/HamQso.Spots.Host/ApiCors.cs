@@ -24,7 +24,11 @@ public static class ApiCors
 {
     public static readonly string[] Methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"];
 
-    public static readonly string[] Headers = ["Authorization", "Content-Type", BearerAuth.ProxyHeader];
+    /// <summary>If-None-Match: the web app asks the catalog with the ETag it has (F53.3).</summary>
+    public static readonly string[] Headers = ["Authorization", "Content-Type", BearerAuth.ProxyHeader, "If-None-Match"];
+
+    /// <summary>What the web app reads of an answer beyond the safelisted headers (the catalog, F53.3).</summary>
+    public static readonly string[] Exposed = ["ETag", "X-Reference-Count"];
 
     public static readonly TimeSpan PreflightMaxAge = TimeSpan.FromMinutes(10);
 
@@ -39,6 +43,7 @@ public static class ApiCors
                 .SetIsOriginAllowed(origin => IsAllowed(origin, origins))
                 .WithMethods(Methods)
                 .WithHeaders(Headers)
+                .WithExposedHeaders(Exposed)
                 .SetPreflightMaxAge(PreflightMaxAge));
         }));
         return services;

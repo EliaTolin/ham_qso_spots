@@ -51,7 +51,7 @@ Every source implements `ISpotSource` and does not know the others; the Host sta
 
 Every HTTP request carries the User-Agent `HamQSO/1.0 (IU4VRB; +https://hamqso.app)` (SOTA asks for the app name and a callsign). A feed with an epoch (`IPolledFeed.EpochUrl`, today only SOTA) reports ok when the epoch is unchanged and sends no batch; when the epoch does not answer the list is not asked and the feed reports failing.
 
-Telnet nodes enabled in production: DXFun (EA4RCH-5), IZ8MBW-6, IK5PWJ-6, DA0BCC-7; EA4URE-2 and PI4CC are configured but disabled (spares). Nodes and intervals are configuration, not code.
+Telnet nodes enabled in production: DXFun (EA4RCH-5), IZ8MBW-6, IK5PWJ-6; DA0BCC-7 (disabled on 30/10/2026: always failing on the server), EA4URE-2 and PI4CC are configured but disabled (spares). Nodes and intervals are configuration, not code.
 
 Parsers are pure functions (`Parse(body, now)`); a malformed row is skipped, the rest of the answer goes on. A telnet `DX de` line carries only `HHMM`: it is taken as today UTC, or yesterday if that is more than 5 minutes in the future.
 

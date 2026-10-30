@@ -98,6 +98,6 @@ public sealed class HostEndpointsTests : IDisposable
     {
         var names = host.Services.GetRequiredService<IEnumerable<ISpotSource>>().Select(s => s.Name).ToArray();
 
-        Assert.Equal(["DXFun", "IZ8MBW-6", "IK5PWJ-6", "DA0BCC-7", "HamQTH", "DXSummit", "POTA", "SOTA"], names);
+        Assert.Equal(["DXFun", "IZ8MBW-6", "IK5PWJ-6", "HamQTH", "DXSummit", "POTA", "SOTA"], names);
     }
 }

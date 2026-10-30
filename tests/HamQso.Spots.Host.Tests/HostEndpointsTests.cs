@@ -34,6 +34,25 @@ public sealed class HostEndpointsTests : IDisposable
         Assert.DoesNotContain("secret", body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Health_says_how_many_references_the_catalog_has_and_when_it_was_built()
+    {
+        using (var before = await host.Client(token: null).GetAsync(new Uri("/health", UriKind.Relative), TestContext.Current.CancellationToken))
+        {
+            using var none = JsonDocument.Parse(await before.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(JsonValueKind.Null, none.RootElement.GetProperty("catalog").ValueKind);
+        }
+        host.Services.GetRequiredService<Application.Catalog.CurrentReferenceCatalog>().File = Domain.References.ReferenceCatalogFormat.Write(
+            [new Domain.References.CatalogReference("IT-1271", "POTA", "Park", null, null, null, null, null, null, null)],
+            new DateTimeOffset(2026, 10, 30, 3, 0, 0, TimeSpan.Zero));
+
+        using var response = await host.Client(token: null).GetAsync(new Uri("/health", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var catalog = doc.RootElement.GetProperty("catalog");
+        Assert.Equal((1, "2026-10-30T03:00:00Z"), (catalog.GetProperty("references").GetInt32(), catalog.GetProperty("built").GetString()));
+    }
+
     [Theory]
     [InlineData("ingestor", "ingestor-password", HttpStatusCode.OK)]
     [InlineData("ingestor", "wrong", HttpStatusCode.Forbidden)]

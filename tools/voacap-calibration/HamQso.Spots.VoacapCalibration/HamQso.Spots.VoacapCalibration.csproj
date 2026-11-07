@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- F71 phase 5: VOACAP against the RBN history. How to run it: README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/HamQso.Spots.Infrastructure/HamQso.Spots.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HamQso.Spots.VoacapCalibration.Tests" />
+  </ItemGroup>
+</Project>

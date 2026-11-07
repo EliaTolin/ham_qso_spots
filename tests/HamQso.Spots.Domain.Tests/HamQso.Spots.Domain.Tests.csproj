@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <!-- band_plan_cases.json and base_callsign_cases.json are copies of ham_qso_supabase/supabase/functions/_shared/: keep them identical. -->
+    <!-- on_frequency_cases.json (F88) comes from the app's own rule: the same file goes to ham_qso_flutter/test/fixtures/. -->
     <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -2,7 +2,7 @@ using HamQso.Spots.Domain.Spots;
 
 namespace HamQso.Spots.Application.Ports;
 
-/// <summary>The archive read for the apps (GET /v1/spots). Every answer carries the current seq.</summary>
+/// <summary>The archive read for the apps (GET /v1/spots, /v1/spots/on-frequency). Every page carries the current seq.</summary>
 public interface ISpotReader
 {
     /// <summary>The newest spots of the filter, by spot time.</summary>
@@ -10,6 +10,9 @@ public interface ISpotReader
 
     /// <summary>Spots of the filter saved after <paramref name="sinceSeq"/>, oldest first, at most <paramref name="limit"/>.</summary>
     Task<SpotPage> ChangedSinceAsync(SpotFilter filter, long sinceSeq, int limit, CancellationToken cancellationToken);
+
+    /// <summary>Spots of every program from <paramref name="since"/> to <paramref name="until"/> (ends included), with a frequency in the range (ends included), QRT too: the candidates of GET /v1/spots/on-frequency.</summary>
+    Task<IReadOnlyList<Spot>> RecentNearAsync(double fromKhz, double toKhz, DateTimeOffset since, DateTimeOffset until, CancellationToken cancellationToken);
 }
 
 /// <summary>

@@ -120,6 +120,20 @@ public sealed class PostgresSpotStore(NpgsqlDataSource dataSource, ISourceHealth
     public Task<SpotPage> ChangedSinceAsync(SpotFilter filter, long sinceSeq, int limit, CancellationToken cancellationToken) =>
         PageAsync($"{Select}{Where} and seq > @Since order by seq limit @Limit", filter, limit, sinceSeq, cancellationToken);
 
+    /// <summary>
+    /// F88: the minutes around now in the archive, through the index on spot_time,
+    /// then the frequency range. By range and not by band: a request near a band edge
+    /// still sees a spot just outside it, and spots without a band.
+    /// </summary>
+    internal const string RecentNearSql = $"{Select} where spot_time between @Since and @Until and frequency_khz between @FromKhz and @ToKhz";
+
+    public async Task<IReadOnlyList<Spot>> RecentNearAsync(double fromKhz, double toKhz, DateTimeOffset since, DateTimeOffset until, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<SpotRow>(new CommandDefinition(RecentNearSql, new { FromKhz = fromKhz, ToKhz = toKhz, Since = since.UtcDateTime, Until = until.UtcDateTime }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return [.. rows.Select(r => r.ToSpot())];
+    }
+
     /// <summary>The spots and the current seq, read in one snapshot so they agree.</summary>
     private async Task<SpotPage> PageAsync(string sql, SpotFilter filter, int limit, long since, CancellationToken cancellationToken)
     {

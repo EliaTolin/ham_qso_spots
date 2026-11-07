@@ -31,10 +31,10 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 
 | Project | Contains | Depends on |
 |---|---|---|
-| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, base callsign (shared cases with the app and the backend), duplicate rule, enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
-| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`, `IRbnFeed`), use cases (`IngestSpots`, `GetSpots`, `SendDxSpot`, `ForwardToUpstream`, `WatchRbn`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
+| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, base callsign (shared cases with the app and the backend), duplicate rule, the spot on a frequency (`SpotOnFrequency`, shared cases with the app), enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
+| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`, `IRbnFeed`), use cases (`IngestSpots`, `GetSpots`, `GetSpotOnFrequency`, `SendDxSpot`, `ForwardToUpstream`, `WatchRbn`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
 | `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`), proxy allowlist and forwarding (`Proxy/`), shared RBN telnet feed (`Rbn/`) | Application |
-| `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/references/catalog`, `/v1/dx/spots`, `/v1/proxy/*`, `/v1/rbn/*`, `/mqtt/*`) | Application, Infrastructure |
+| `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/spots/on-frequency`, `/v1/references/catalog`, `/v1/dx/spots`, `/v1/proxy/*`, `/v1/rbn/*`, `/mqtt/*`) | Application, Infrastructure |
 
 ## Sources
 
@@ -47,13 +47,13 @@ Every source implements `ISpotSource` and does not know the others; the Host sta
 | DX Summit | `https://www.dxsummit.fi/api/v1/spots?limit=100` | 30 s |
 | POTA | `https://api.pota.app/spot/activator` | 30 s |
 | SOTA | `https://api-db2.sota.org.uk/api/spots/epoch` every interval; the list `https://api-db2.sota.org.uk/api/spots/50/all/all` only when the epoch differs from the one of the last list read (SOTA's rule). `TEST` spots dropped; a `QRT` spot is kept with `qrt: true` (at 0 kHz when it has no frequency, as SOTAwatch often sends it) and never alerted (B29) | 1 min (the minimum: a shorter interval stops the server at start) |
-| WWFF | `https://spots.wwff.co/static/spots.json`; spots with `QRT` in the remarks dropped | 1 min |
+| WWFF | `https://spots.wwff.co/static/spots.json`; spots with `QRT` in the remarks dropped (`QrtComment`) | 1 min |
 
 Every HTTP request carries the User-Agent `HamQSO/1.0 (IU4VRB; +https://hamqso.app)` (SOTA asks for the app name and a callsign). A feed with an epoch (`IPolledFeed.EpochUrl`, today only SOTA) reports ok when the epoch is unchanged and sends no batch; when the epoch does not answer the list is not asked and the feed reports failing.
 
 Telnet nodes enabled in production: DXFun (EA4RCH-5), IZ8MBW-6, IK5PWJ-6; DA0BCC-7 (disabled on 30/10/2026: always failing on the server), EA4URE-2 and PI4CC are configured but disabled (spares). Nodes and intervals are configuration, not code.
 
-Parsers are pure functions (`Parse(body, now)`); a malformed row is skipped, the rest of the answer goes on. A telnet `DX de` line carries only `HHMM`: it is taken as today UTC, or yesterday if that is more than 5 minutes in the future.
+Parsers are pure functions (`Parse(body, now)`); a malformed row is skipped, the rest of the answer goes on. A telnet `DX de` line carries only `HHMM`: it is taken as today UTC, or yesterday if that is more than 5 minutes in the future (`Spot.FutureTolerance`).
 
 ## Ingestion (`IngestSpots`)
 
@@ -87,6 +87,7 @@ Saves come one batch at a time, so a reader never sees a seq whose earlier seqs 
 
 - MQTT: QoS 1, not retained, `{"seq", "full": false, "spots"}`; the publisher connects with a 5 s timeout and, after a failure, tries again at most every 10 s (publishes fail fast in between).
 - REST `GET /v1/spots` (`GetSpots`): latest 200 of the filter, or the changes since `since_seq`, or the current list if the changes are more than 200. Read from Postgres at every request.
+- REST `GET /v1/spots/on-frequency` (F88, `GetSpotOnFrequency`): one query per request, `spot_time between now - 10 min and now + 5 min and frequency_khz between khz ± 3.3`, through the index `dx_spots_spot_time` (a few hundred rows of the 7-day archive; no index added, a test checks the plan with 200,000 rows). The radius is `SpotOnFrequency.CandidateRadiusKhz`, the farthest a spot can be and still answer: a FT8 spot at the top of its calling window (dial + 3.2) with the request 0.1 below the dial. A range and not the band of the request, so that a request near a band edge still sees a spot just outside it and spots without a band. The rule in the Domain then leaves out QRT spots (the flag or the comment, `QrtComment`, as the app's `commentSaysQrt`) and chooses; the app keeps the same tolerances, calling dials and QRT comments (`on_frequency_cases.json`). The 5 minutes ahead are `Spot.FutureTolerance`, the same margin of the telnet lines. A QRT on another frequency is not read: known limit, see [protocol.md](protocol.md#rest-get-v1spotson-frequency-who-is-on-this-frequency). The frequency is only a query parameter: not stored, and the request line is never logged (`Microsoft.AspNetCore` at `Warning`, see [the proxy](#the-proxy-nothing-kept-nothing-logged); a Host test fails if it reaches the log).
 
 The full contract for clients is in [protocol.md](protocol.md).
 

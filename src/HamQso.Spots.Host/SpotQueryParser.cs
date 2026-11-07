@@ -68,6 +68,16 @@ public static class SpotQueryParser
         return new SpotQuery(new SpotFilter(program, bands, modes), limit, since);
     }
 
+    /// <summary>The khz of GET /v1/spots/on-frequency: a plain positive number, null with a message otherwise.</summary>
+    public static double? ParseFrequency(Func<string, StringValues> query, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        error = null;
+        if (double.TryParse(query("khz").ToString(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var khz) && double.IsFinite(khz) && khz > 0) return khz;
+        error = "khz must be a positive number";
+        return null;
+    }
+
     /// <summary>Repeated and comma separated values: band=20m&amp;band=40m or band=20m,40m.</summary>
     private static string[] Values(StringValues values) =>
         [.. values.SelectMany(v => (v ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).Distinct(StringComparer.Ordinal)];

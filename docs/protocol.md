@@ -5,6 +5,8 @@ How an app (or any client) gets spots from the spots server, how a client withou
 - **REST** `GET https://spot.hamqso.app/v1/spots` gives the starting list, or what changed since the last spot the client saw.
 - **MQTT** `wss://spot.hamqso.app/mqtt` pushes the news live, as soon as a spot is saved.
 
+[`GET /v1/spots/on-frequency`](#rest-get-v1spotson-frequency-who-is-on-this-frequency) answers one question: who was spotted on this frequency in the last minutes.
+
 There is no "remove" and no expiry: a spot is shown with its age ("5 min ago") from `spot_time`; hiding old spots is a choice of the client.
 
 All examples below are real answers of the production server (27/10/2026; the POTA `spot_key` is shown in the activation form introduced the same evening).
@@ -152,6 +154,47 @@ A starting list (`?program=dx&limit=2`) gives `{"seq": 7941, "full": true, "spot
 |---|---|---|
 | `401` | No `Authorization: Bearer`, or the token is not a valid Supabase token of HamQSO or of a reader project (expired, forged, other project) | empty |
 | `400` | A parameter is wrong | `{"error": "unknown band '11m'"}` (says which one) |
+
+## REST: `GET /v1/spots/on-frequency` (who is on this frequency)
+
+F88. The station a frequency written in the log, or the one of the radio, suggests: one spot or none, from every program. Same authentication as `/v1/spots`, anonymous users included.
+
+```
+GET https://spot.hamqso.app/v1/spots/on-frequency?khz=14285.0
+Authorization: Bearer <access_token>
+```
+
+| Parameter | Required | Values |
+|---|---|---|
+| `khz` | yes | The frequency in kHz, a positive number with `.` as decimal point (`14285`, `14285.5`) |
+
+Answer `200`, the spot in the [same shape](#the-spot) as in the lists, or `null` when there is none. `seq` and `full` are not in this answer:
+
+```json
+{ "spot": { "program": "pota", "seq": 7919, "callsign": "K4RCY", "frequency_khz": 14080, … } }
+```
+
+```json
+{ "spot": null }
+```
+
+Which spot (`SpotOnFrequency` in the Domain):
+
+- **Candidates**: DX, POTA, SOTA and WWFF spots with `spot_time` in the last 10 minutes (exactly 10 minutes ago still counts) or up to 5 minutes ahead of the server's clock (exactly 5 still counts, later is left out: clocks differ, the same margin as for telnet lines), a frequency above zero, not QRT.
+- **Not QRT**: `qrt` false and no `QRT` as a word in the `comment`, in any program and in any case (`qrt off to next peak` is a QRT, `QRTX` is not). The same rule as the app's `commentSaysQrt`; shared cases in `on_frequency_cases.json`.
+- **On the frequency**, by the mode of the spot: AM and FM ±3 kHz, CW ±0.5, phone ±1.5, digital and everything else (no mode too) ±1. A spot of mode FT8, FT4 or JS8 inside a calling window of that mode is compared on the **calling frequency**, ±0.1 kHz: a FT8 spot at 14075.8 answers `khz=14074.0`, not `khz=14075.8`. The same tolerances as the app's `tunedSpot`; shared cases in `on_frequency_cases.json`.
+- **The most recent wins**, not the nearest (unlike `tunedSpot`). With the same `spot_time` (DX times have only the minute): the nearest, then the highest `seq`, then `program` and `spot_key` in byte order, so the answer does not depend on the order of the rows.
+
+The 10 minutes count when the request arrives; the client decides how long it shows the answer. The frequency asked is not kept and not logged.
+
+Known limit: every spot is judged alone, on what it says, and only spots near the frequency are read. A QRT spot on another frequency does not end the station here: unlike the lists, where the apps close the whole activation (B29), its older spot on the frequency asked can still be the answer, until it is 10 minutes old. Accepted (Elia, 06/11/2026): no second read of the archive.
+
+### Errors
+
+| Status | When | Body |
+|---|---|---|
+| `401` | As for `/v1/spots` (checked first) | empty |
+| `400` | `khz` missing, not a plain number (`abc`, `14285,5`, `1e5`, `NaN`, repeated) or not positive | `{"error": "khz must be a positive number"}` |
 
 ## MQTT: the news
 
@@ -373,10 +416,10 @@ Latitude and longitude have at most 5 decimals; a tab or a line break inside a n
 
 ## CORS
 
-The HTTP API (`/v1/spots`, `/v1/references/catalog`, `/v1/dx/spots`, `/v1/proxy`, `/v1/rbn`) answers browsers of the configured origins (`Cors:Origins`: in production **`https://app.hamqso.app`**, the web app; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`, `If-None-Match`; exposed response headers `ETag`, `X-Reference-Count` (the catalog); preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.
+The HTTP API (`/v1/spots`, `/v1/spots/on-frequency`, `/v1/references/catalog`, `/v1/dx/spots`, `/v1/proxy`, `/v1/rbn`) answers browsers of the configured origins (`Cors:Origins`: in production **`https://app.hamqso.app`**, the web app; in development `http://localhost:*` and `http://127.0.0.1:*`): methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; request headers `Authorization`, `Content-Type`, `X-HamQSO-Auth`, `If-None-Match`; exposed response headers `ETag`, `X-Reference-Count` (the catalog); preflight cached 10 minutes; no credentials (cookies) — the tokens travel in headers. Another origin gets no CORS headers, so the browser refuses the answer. MQTT over WebSocket needs no CORS.
 
 ## Limits and attribution
 
-- At most 200 spots per answer. No rate limit on the lists yet: be gentle (one list per open or reconnection, not polling). Sending spots is limited (above).
+- At most 200 spots per answer. No rate limit on the lists or on `/v1/spots/on-frequency` yet: be gentle (one list per open or reconnection, one question per frequency, not polling). Sending spots is limited (above).
 - HamQTH asks to show "Data provided by HamQTH.com" where its data is shown.
 - Tested capacity (27/10/2026): up to 500 clients connected at once with news delivered to all within 0.9 s (95th percentile); about 900 is the current limit.

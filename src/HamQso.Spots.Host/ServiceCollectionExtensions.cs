@@ -45,6 +45,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISpotReader>(sp => sp.GetRequiredService<PostgresSpotStore>());
         services.AddSingleton<ISpotArchiveSchema>(sp => sp.GetRequiredService<PostgresSpotStore>());
         services.AddSingleton<GetSpots>();
+        services.AddSingleton<GetSpotOnFrequency>();
         services.AddSingleton<ISourceHealth>(sp => sp.GetRequiredService<SourceHealthRegistry>());
         services.AddSingleton<ISpotPublisher, MqttSpotPublisher>();
         // Without the secret key (a local run) the alerts are off: see FeatureSwitches.

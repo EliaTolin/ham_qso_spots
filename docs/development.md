@@ -31,7 +31,7 @@ Build settings for every project are in `Directory.Build.props` (nullable, warni
 ## Tests
 
 ```
-dotnet test                 # 575 tests, about 45 s
+dotnet test                 # 1068 tests, about 1 minute
 scripts/coverage.sh         # the same with line coverage; fails under 90% total or 85% per assembly
 ```
 
@@ -148,6 +148,7 @@ Nothing else changes: merging, archive, publishing, alerts and health work for e
 |---|---|---|
 | Band plan cases | `tests/HamQso.Spots.Domain.Tests/Fixtures/band_plan_cases.json` | `ham_qso_supabase/supabase/functions/_shared/`, `ham_qso_flutter/test/fixtures/` |
 | Base callsign cases | `tests/HamQso.Spots.Domain.Tests/Fixtures/base_callsign_cases.json` | `ham_qso_supabase/supabase/functions/_shared/`, `ham_qso_flutter/test/fixtures/` |
+| On-frequency cases (F88: tolerances, calling dials, QRT in the comment) | `tests/HamQso.Spots.Domain.Tests/Fixtures/on_frequency_cases.json` | `ham_qso_flutter/test/fixtures/` (`tunedToleranceKhz`, `BandPlan.callingDialFor`, `tunedSpot`, `commentSaysQrt`) |
 | RBN line format | `Infrastructure/Rbn/RbnLineParser.cs` | `RbnLineParser` in `ham_qso_flutter/lib/src/features/coverage/data/parser/` |
 | DXCC prefixes | `src/HamQso.Spots.Domain/Data/dxcc_prefixes.json` | `ham_qso_supabase/supabase/functions/_shared/data/` |
 | Alert payload | `Infrastructure/Alerts/AlertSpotPayload.cs` | `NormalizedSpot` in `ham_qso_supabase/.../match_alerts/types.ts`, parsed by `alert_spots/api/parse-spots.ts` |

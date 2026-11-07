@@ -144,6 +144,12 @@ public sealed class TestHost : WebApplicationFactory<Program>
     {
         public SpotFilter? LastFilter { get; private set; }
 
+        /// <summary>What the archive holds for GET /v1/spots/on-frequency.</summary>
+        public IReadOnlyList<Domain.Spots.Spot> Nearby { get; set; } = [];
+
+        /// <summary>Thrown by the archive instead of giving <see cref="Nearby"/>.</summary>
+        public Exception? NearbyFailure { get; set; }
+
         private static readonly Domain.Spots.Spot Spot = new()
         {
             Program = Domain.Spots.SpotProgram.Dx,
@@ -166,6 +172,9 @@ public sealed class TestHost : WebApplicationFactory<Program>
             LastFilter = filter;
             return Task.FromResult(new SpotPage(99, false, []));
         }
+
+        public Task<IReadOnlyList<Domain.Spots.Spot>> RecentNearAsync(double fromKhz, double toKhz, DateTimeOffset since, DateTimeOffset until, CancellationToken cancellationToken) =>
+            NearbyFailure is null ? Task.FromResult(Nearby) : Task.FromException<IReadOnlyList<Domain.Spots.Spot>>(NearbyFailure);
     }
 
     /// <summary>The RBN without telnet: <see cref="Push"/> sends a line to everyone reading.</summary>

@@ -79,6 +79,9 @@ public sealed record Spot
     /// <summary>The activator went QRT: the source says so (SOTA "QRT" spot). The apps close the whole activation (B29).</summary>
     public bool Qrt { get; init; }
 
+    /// <summary>How far ahead of our clock the time of a spot can still be true, end included (clocks of the sources and of the telnet nodes differ).</summary>
+    public static readonly TimeSpan FutureTolerance = TimeSpan.FromMinutes(5);
+
     /// <summary>Locator of the spotter, sent by some telnet nodes.</summary>
     public string? SpotterLocator { get; init; }
 }

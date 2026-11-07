@@ -1,6 +1,6 @@
 # Client protocol
 
-How an app (or any client) gets spots from the spots server, how a client without telnet sends one ([`POST /v1/dx/spots`](#rest-post-v1dxspots-sending-a-dx-spot)), how the web app reaches services that send no CORS headers ([the proxy](#rest-the-proxy-v1proxy)), and how it hears the Reverse Beacon Network for the coverage test ([`GET /v1/rbn`](#stream-get-v1rbncallsign-the-coverage-test)). Two channels, one message shape:
+How an app (or any client) gets spots from the spots server, how a client without telnet sends one ([`POST /v1/dx/spots`](#rest-post-v1dxspots-sending-a-dx-spot)), how the web app reaches services that send no CORS headers ([the proxy](#rest-the-proxy-v1proxy)), and how it hears the Reverse Beacon Network for the coverage test ([`GET /v1/rbn`](#stream-get-v1rbncallsign-the-coverage-test), and [who is listening](#rest-get-v1rbnskimmers-who-is-listening-f71)). Two channels, one message shape:
 
 - **REST** `GET https://spot.hamqso.app/v1/spots` gives the starting list, or what changed since the last spot the client saw.
 - **MQTT** `wss://spot.hamqso.app/mqtt` pushes the news live, as soon as a spot is saved.
@@ -371,30 +371,116 @@ Every other answer is the service's own.
 
 ## Stream: `GET /v1/rbn/{callsign}` (the coverage test)
 
-The coverage test listens to the Reverse Beacon Network for the user's station. The phone opens the RBN telnet itself; a browser cannot, so the web app listens through the server, as **Server-Sent Events** read with `fetch` (so the token goes in the header, as everywhere; `EventSource` cannot set headers and is not supported):
+The coverage test listens to the Reverse Beacon Network for the user's station through the server, as **Server-Sent Events** read with `fetch` (so the token goes in the header, as everywhere; `EventSource` cannot set headers and is not supported). Two versions:
+
+- **v2** (`?v=2`, F71): phone and web. Every event is JSON already read by the server, with the **true position of the skimmer**, plus the state of the RBN connection. Use this one.
+- **v1** (no `v`, or `v=1`, F58): the raw RBN line, signed-in users only. Kept unchanged for the web app versions already out.
 
 ```
-GET https://spot.hamqso.app/v1/rbn/EA8/IU4VRB/P
+GET https://spot.hamqso.app/v1/rbn/EA8/IU4VRB/P?v=2
 Authorization: Bearer <access_token>
 Accept: text/event-stream
 ```
 
-Read the body as a stream of lines: `data: <line>` is a spot, `event: end` closes the stream, lines starting with `:` are comments, an empty line ends an event.
+Read the body as a stream of lines: `event: <type>` names the next event (none in v1: every event is a spot), `data: <text>` is its content, `event: end` closes the stream, lines starting with `:` are comments, an empty line ends an event.
 
-- **Who**: signed-in HamQSO users only (the coverage test needs a callsign): anonymous users get `403 account_required`, HamQRG users `403 not_allowed`. The token goes in `Authorization: Bearer` only; a token in the query is not read.
+- **Who**: v2: every HamQSO user, anonymous ones included (RBN spots are public and the call is in the path). v1: signed-in users only, anonymous users get `403 account_required`. HamQRG users get `403 not_allowed`. The token goes in `Authorization: Bearer` only; a token in the query is not read.
 - **`{callsign}`**: the station to hear, slashes included (`EA8/IU4VRB/P`), letters and digits with at least one of each, at most 20 characters, as written (no spaces). The server matches spots **as the app does**: the base call of the spot equals the base call asked (`baseCallsign`, shared cases in `base_callsign_cases.json`), so `IU4VRB`, `IU4VRB/P`, `EA8/IU4VRB` all match `IU4VRB`.
-- **Events**: `text/event-stream`, first the comment `: connected`; then one `data:` event per RBN spot line of the station, **the line as the RBN sent it** (trimmed, control characters removed), e.g. `data: DX de OK4YL-#:   7025.10  IU4VRB/P   CW   7 dB  23 WPM  CQ   2055Z`; parse it as the app's `RbnLineParser`. A comment `: ping` every 15 s keeps proxies from closing a quiet stream.
 - **Duration**: at most **15 minutes** per stream; then `event: end` / `data: time_limit` and the server closes it (open a new one to go on). Close it yourself when the test ends.
-- **Limit**: at most **2 streams at once per user** (`429 too_many_streams`).
-- **Behind it**: one RBN telnet connection for all listeners of the server, logged in with the server's own callsign (never the user's), opened by the first listener and closed 1 minute after the last; reconnected with backoff if it drops. While it reconnects the stream stays open and simply has no events.
+- **Limits**: at most **2 streams at once per user**; for anonymous users (free to create, so a new one per stream must not get around the limit) also at most **4 at once per client address** (IPv6 by /64) and **300 anonymous streams on the whole server**. Refused: `429` with `Retry-After: 30` (`too_many_streams`, or `busy` for the server ceiling).
+- A comment `: ping` every 15 s keeps proxies from closing a quiet stream.
+
+**v2 events** (shared fixture `rbn_sse_v2.txt`, identical in the app's tests):
+
+```
+: connected
+
+event: spot
+data: {"skimmer":"OK4YL","call":"IU2DEMO","khz":14045.1,"snr_db":17,"wpm":23,"kind":"CQ","band":"20m","rbn_time":"1432Z","received_at":"2026-11-06T14:32:12.418Z","position":{"locator":"JN79FX","lat":49.98,"lon":14.46,"source":"node"},"dxcc":503,"continent":"EU"}
+
+event: status
+data: {"feed":"reconnecting"}
+```
+
+| Field of `spot` | Type | Meaning |
+|---|---|---|
+| `skimmer` | string | The skimmer, without the RBN `-#` (`KM3T-2` for `KM3T-2-#`) |
+| `call` | string | The station heard, in capitals, as the RBN wrote it (`IU2DEMO/P`) |
+| `khz` | number | Frequency |
+| `snr_db` | int | Signal to noise |
+| `wpm` | int or null | CW speed; null for a speed in bauds (RTTY) |
+| `kind` | string | `CQ`, `BEACON`, `NCDXF B`, `DX`… |
+| `band` | string or null | `20m` (the server's band edges, the same as the app's); null outside the amateur bands |
+| `rbn_time` | string | The time the RBN wrote (`1432Z`, no date) |
+| `received_at` | string | When the server received the line (UTC, milliseconds): use this for "time to first spot" |
+| `position` | object or null | Where the skimmer is: `locator` (its node's 6-character locator, null for `source: "country"`), `lat`, `lon` (two decimals), `source`: `node` (the centre of the locator of the RBN node list) or `country` (the centre of its DXCC entity, cty.dat). Null when neither is known |
+| `dxcc`, `continent` | int, string, or null | The skimmer's DXCC entity (ADIF) and continent, from its call |
+
+`status` carries `feed`: `up`, `reconnecting` or `down` (the same as `feed.state` of `GET /v1/rbn/skimmers`). It is sent when the state changes, and at once after `: connected` if the connection is not up when the stream opens (a stream that says nothing started with the feed up). While it reconnects the stream stays open and simply has no spots.
+
+**v1 events**: one `data:` event per RBN spot line of the station, **the line as the RBN sent it** (trimmed, control characters removed), e.g. `data: DX de OK4YL-#:   7025.10  IU4VRB/P   CW   7 dB  23 WPM  CQ   2055Z`; parse it as the app's `RbnLineParser`. No `status`.
+
+**Behind it**: one RBN telnet connection for all of HamQSO, logged in with the server's own callsign (never the user's), **always open** (F71; it also counts which skimmers are listening), reconnected with backoff if it drops.
 
 | Status | Body | When |
 |---|---|---|
 | `200` | the event stream | |
 | `400` | `{"error": "invalid_callsign"}` | Not a callsign (see above) |
+| `400` | `{"error": "invalid_version"}` | `v` is not `1` or `2` |
 | `401` | empty | No token, or not a valid Supabase token |
-| `403` | `{"error": "account_required"}` / `{"error": "not_allowed"}` | Anonymous user / reader project |
-| `429` | `{"error": "too_many_streams"}` | 2 streams of this user already open |
+| `403` | `{"error": "account_required"}` / `{"error": "not_allowed"}` | Anonymous user on v1 / reader project |
+| `429` | `{"error": "too_many_streams", "retry_after_s": 30}` + `Retry-After` | 2 streams of this user already open, or (anonymous) 4 of this client address |
+| `429` | `{"error": "busy", "retry_after_s": 30}` + `Retry-After` | (v2, anonymous) 300 anonymous streams open on the server |
+
+## REST: `GET /v1/rbn/skimmers` (who is listening, F71)
+
+The skimmers of the Reverse Beacon Network that are listening on a band, each with its true position: the forecast of the coverage test (Supabase `coverage_forecast`) asks it for the skimmers of the test and for the forecast "now".
+
+```
+GET https://spot.hamqso.app/v1/rbn/skimmers?band=20m&from=2026-11-06T14:32:05Z&to=2026-11-06T14:33:17Z
+Authorization: Bearer <access_token>
+```
+
+- **Who**: every HamQSO user, **anonymous ones included** (`401` without a valid token, `403 not_allowed` for HamQRG). The forecast function `coverage_forecast` calls it with the user's own `Authorization`, anonymous users too: the limits count that user, not the caller's address (all of Supabase shares a few addresses).
+- **Limits** (the proxy's values): 120 calls a minute per user (`429 rate_limited` with `Retry-After`), 1000 a minute for all anonymous users together (`503 busy`). The answer is the same for everyone: the server reads the skimmers of a band and of the same minutes once a minute.
+- **`band`**: required, one of the server's bands (`160m` … `23cm`, lowercase `m`).
+- **`from`, `to`**: the start and end of the test, ISO 8601 (UTC with `Z`, or with an offset; without one it is read as UTC). Both or neither. With them the window is **from 10 minutes before `from` to `to`**; without them, the last 10 minutes. The window must end at most 1 minute in the future and start (10 minutes before `from`) at most **48 hours** ago: older activity is not kept.
+- **Listening** means at least one spot on that band in the window (counted per minute of arrival at the server: the minute in which the window starts counts whole).
+
+```json
+{
+  "band": "20m",
+  "from": "2026-11-06T14:22:05Z",
+  "to": "2026-11-06T14:33:17Z",
+  "feed": {"state": "up", "since": "2026-11-06T03:12:44Z"},
+  "nodes": {"fetched_at": "2026-11-06T14:05:00Z", "count": 350, "stale": false},
+  "skimmers": [
+    {"call": "OK4YL", "locator": "JN79FX", "lat": 49.98, "lon": 14.46, "position_source": "node",
+     "dxcc": 503, "continent": "EU", "spots": 42, "last_spot_at": "2026-11-06T14:31:40Z"},
+    {"call": "Z61DX", "locator": null, "lat": 42.67, "lon": 21.17, "position_source": "country",
+     "dxcc": 522, "continent": "EU", "spots": 3, "last_spot_at": "2026-11-06T14:29:02Z"}
+  ]
+}
+```
+
+(Shared fixture `rbn_skimmers_v1.json`, identical in `ham_qso_supabase`.)
+
+| Field | Meaning |
+|---|---|
+| `from`, `to` | The window used |
+| `feed.state`, `feed.since` | `up`, `reconnecting`, `down` (`down` also after 5 minutes of reconnecting), and since when (null: since the server started). Not `up`: the list may be short |
+| `nodes.fetched_at`, `count`, `stale` | The last good read of the RBN node list, how many nodes it had, and whether it is stale: older than 2 hours, none yet, or the page changed format. Stale: more skimmers may be at the centre of their country |
+| `skimmers[]` | Most spots first, then by call. `call` without `-#`; `locator`, `lat`, `lon`, `position_source` as `position` of the stream v2; `dxcc`, `continent` from the call; `spots` in the window; `last_spot_at` (seconds). A skimmer whose position is not known at all (no node, unknown entity) is left out |
+
+| Status | Body | When |
+|---|---|---|
+| `200` | the answer above | |
+| `400` | `{"error": "invalid_band"}` | `band` missing or not one of the server's |
+| `400` | `{"error": "invalid_window"}` | Only one of `from`/`to`, not a time, `from` after `to`, in the future, or older than 48 hours |
+| `401` | empty | No token, or not a valid Supabase token |
+| `403` | `{"error": "not_allowed"}` | A token of a reader project (HamQRG) |
+| `429` | `{"error": "rate_limited", "retry_after_s": N}` + `Retry-After` | Over 120 calls a minute for this user |
+| `503` | `{"error": "busy"}` | Over 1000 calls a minute for all anonymous users |
 
 ## REST: `GET /v1/references/catalog` (the offline reference catalog)
 
@@ -422,4 +508,5 @@ The HTTP API (`/v1/spots`, `/v1/spots/on-frequency`, `/v1/references/catalog`, `
 
 - At most 200 spots per answer. No rate limit on the lists or on `/v1/spots/on-frequency` yet: be gentle (one list per open or reconnection, one question per frequency, not polling). Sending spots is limited (above).
 - HamQTH asks to show "Data provided by HamQTH.com" where its data is shown.
+- RBN data (spots, skimmers, node list): cite "Reverse Beacon Network" with a link to https://www.reversebeacon.net where it is shown (F71).
 - Tested capacity (27/10/2026): up to 500 clients connected at once with news delivered to all within 0.9 s (95th percentile); about 900 is the current limit.

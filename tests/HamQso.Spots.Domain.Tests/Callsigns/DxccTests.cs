@@ -22,3 +22,20 @@ public class DxccTests
     [InlineData(null, null)]
     public void Knows_the_continent_of_an_entity(int? dxcc, string? expected) => Assert.Equal(expected, Dxcc.ContinentOf(dxcc));
 }
+
+public class DxccCentreTests
+{
+    [Theory]
+    [InlineData(503, 50.0, 16.0)]
+    [InlineData(522, 42.67, 21.17)]
+    [InlineData(291, 37.6, -91.87)]
+    public void The_centre_of_an_entity_as_in_the_app_east_positive(int dxcc, double lat, double lon) =>
+        Assert.Equal((lat, lon), HamQso.Spots.Domain.Callsigns.Dxcc.CentreOf(dxcc));
+
+    [Fact]
+    public void An_unknown_entity_has_no_centre()
+    {
+        Assert.Null(HamQso.Spots.Domain.Callsigns.Dxcc.CentreOf(0));
+        Assert.Null(HamQso.Spots.Domain.Callsigns.Dxcc.CentreOf(null));
+    }
+}

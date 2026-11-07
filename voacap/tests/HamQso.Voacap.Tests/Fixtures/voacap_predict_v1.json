@@ -1,0 +1,22 @@
+{
+  "request": {
+    "month": 11, "utc_hour": 14, "frequency_mhz": 14.045,
+    "settings": {"method": 30, "noise_dbw": -150, "min_takeoff_deg": 3, "required_snr_dbhz": 24},
+    "receive_antenna": {"model": "isotropic", "gain_dbi": 0},
+    "transmitter": {"lat": 45.6, "lon": 9.2},
+    "scenarios": [
+      {"id": "theory", "ssn": 118, "power_w": 100, "antenna": {"model": "dipole", "height_m": 10}},
+      {"id": "sky", "ssn": 131, "power_w": 100, "antenna": {"model": "dipole", "height_m": 10}},
+      {"id": "station", "ssn": 131, "power_w": 100, "antenna": {"model": "yagi", "gain_dbi": 8.5, "height_m": 12}}
+    ],
+    "receivers": [{"id": "OK4YL", "lat": 49.98, "lon": 14.46}]
+  },
+  "response": {
+    "engine": "voacapl 0.7.6", "elapsed_ms": 38,
+    "results": {
+      "theory": [{"id": "OK4YL", "rel": 0.83, "snr_dbhz": 41, "muf_mhz": 19.6, "mode": "1F2"}],
+      "sky": [{"id": "OK4YL", "rel": 0.88, "snr_dbhz": 43, "muf_mhz": 21.0, "mode": "1F2"}],
+      "station": [{"id": "OK4YL", "rel": 0.95, "snr_dbhz": 49, "muf_mhz": 21.0, "mode": "1F2"}]
+    }
+  }
+}

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../HamQso.Voacap.Tests/Fixtures/voacap_predict_v1.json" Link="Fixtures/voacap_predict_v1.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HamQso.Voacap.Host/HamQso.Voacap.Host.csproj" />
+  </ItemGroup>
+</Project>

@@ -488,3 +488,4 @@ $RECYCLE.BIN/
 
 # Supabase CLI cache (created when the CLI runs from here)
 **/supabase/.temp/
+voacap/.local-token

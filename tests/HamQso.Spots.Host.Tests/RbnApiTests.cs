@@ -75,8 +75,8 @@ public sealed class RbnApiTests : IDisposable
         Assert.Equal(": connected", await stream.NextAsync());
         await WaitForReaders(1);
 
-        host.Rbn.Push(new RbnLine(Other, "K1ABC"));
-        host.Rbn.Push(new RbnLine(Mine, "IU4VRB/P"));
+        host.Rbn.Push(Other);
+        host.Rbn.Push(Mine);
 
         Assert.Equal($"data: {Mine}", await stream.NextEventAsync());
     }
@@ -161,6 +161,105 @@ public sealed class RbnApiTests : IDisposable
         Assert.Contains(": ping", lines);
         Assert.Equal(["event: end", "data: time_limit", ""], lines[^3..]);
         await WaitForReaders(0);
+    }
+
+    // F71: the stream v2, every event already read by the server (plan, 3.2).
+
+    private static string Fixture(string name) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name)).ReplaceLineEndings("\n");
+
+    [Fact]
+    public async Task A_v2_spot_is_the_event_of_the_shared_fixture_with_the_true_position_of_the_skimmer()
+    {
+        host.RbnNodes.Set([new Domain.Rbn.RbnNode("OK4YL", "JN79FX", ["20m"], true, null)], DateTimeOffset.UtcNow);
+        var expected = Fixture("rbn_sse_v2.txt").Split("\n\n");
+        using var stream = await Open("/v1/rbn/IU2DEMO?v=2");
+        Assert.Equal(": connected", await stream.NextAsync());
+        await WaitForReaders(1);
+
+        host.Rbn.Push("DX de OK4YL-#:   14045.1  IU2DEMO        CW    17 dB  23 WPM  CQ      1432Z", new DateTimeOffset(2026, 11, 6, 14, 32, 12, 418, TimeSpan.Zero));
+        var spot = new[] { await stream.NextEventAsync(), await stream.NextEventAsync() };
+
+        var fixtureSpot = expected[1].Split('\n');
+        Assert.Equal(fixtureSpot[0], spot[0]);
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(fixtureSpot[1]["data: ".Length..]),
+            System.Text.Json.Nodes.JsonNode.Parse(spot[1]["data: ".Length..])), spot[1]);
+    }
+
+    [Fact]
+    public async Task A_v2_stream_says_when_the_feed_changes_state()
+    {
+        var expected = Fixture("rbn_sse_v2.txt").Split("\n\n")[2].Split('\n');
+        using var stream = await Open("/v1/rbn/IU2DEMO?v=2");
+        Assert.Equal(": connected", await stream.NextAsync());
+        await WaitForReaders(1);
+
+        host.Rbn.SetStatus(new RbnFeedStatus(RbnFeedState.Reconnecting, DateTimeOffset.UtcNow));
+
+        Assert.Equal(expected[0], await stream.NextEventAsync());
+        Assert.Equal(expected[1], await stream.NextEventAsync());
+    }
+
+    [Fact]
+    public async Task A_v2_stream_opened_while_the_feed_is_not_up_says_so_at_once()
+    {
+        host.Rbn.SetStatus(new RbnFeedStatus(RbnFeedState.Down, DateTimeOffset.UtcNow));
+        using var stream = await Open("/v1/rbn/IU2DEMO?v=2");
+
+        Assert.Equal(": connected", await stream.NextAsync());
+        Assert.Equal("event: status", await stream.NextEventAsync());
+        Assert.Equal("data: {\"feed\":\"down\"}", await stream.NextEventAsync());
+    }
+
+    [Fact]
+    public async Task A_v2_stream_is_open_to_anonymous_users_too_but_not_to_readers()
+    {
+        using (var anonymous = await Open("/v1/rbn/IU2DEMO?v=2", TestHost.AnonymousToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, anonymous.Response.StatusCode);
+            Assert.Equal(": connected", await anonymous.NextAsync());
+        }
+        using var reader = await Open("/v1/rbn/IU2DEMO?v=2", TestHost.ReaderToken);
+        Assert.Equal(HttpStatusCode.Forbidden, reader.Response.StatusCode);
+        using var none = await Open("/v1/rbn/IU2DEMO?v=2", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, none.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Anonymous_users_of_one_address_have_four_v2_streams_then_429_with_Retry_After()
+    {
+        var open = new List<Stream>();
+        for (var i = 0; i < 4; i++) open.Add(await Open("/v1/rbn/IU2DEMO?v=2", $"{TestHost.UserTokenPrefix}anon{i}"));
+        Assert.All(open, s => Assert.Equal(HttpStatusCode.OK, s.Response.StatusCode));
+
+        using var fifth = await Open("/v1/rbn/IU2DEMO?v=2", $"{TestHost.UserTokenPrefix}anon5");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, fifth.Response.StatusCode);
+        Assert.Equal("too_many_streams", JsonElement.Parse(await fifth.Response.Content.ReadAsStringAsync(Ct)).GetProperty("error").GetString());
+        Assert.Equal("30", fifth.Response.Headers.GetValues("Retry-After").Single());
+        foreach (var s in open) s.Dispose();
+    }
+
+    [Fact]
+    public async Task The_v1_stream_is_unchanged_raw_lines_and_no_status_event()
+    {
+        using var stream = await Open("/v1/rbn/IU4VRB?v=1");
+        Assert.Equal(": connected", await stream.NextAsync());
+        await WaitForReaders(1);
+
+        host.Rbn.SetStatus(new RbnFeedStatus(RbnFeedState.Reconnecting, DateTimeOffset.UtcNow));
+        host.Rbn.Push(Mine);
+
+        Assert.Equal($"data: {Mine}", await stream.NextEventAsync());
+    }
+
+    [Fact]
+    public async Task An_unknown_version_is_a_400()
+    {
+        using var stream = await Open("/v1/rbn/IU4VRB?v=3");
+
+        Assert.Equal(HttpStatusCode.BadRequest, stream.Response.StatusCode);
+        Assert.Equal("invalid_version", JsonElement.Parse(await stream.Response.Content.ReadAsStringAsync(Ct)).GetProperty("error").GetString());
     }
 
     [Theory]

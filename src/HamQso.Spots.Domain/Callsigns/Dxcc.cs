@@ -23,6 +23,8 @@ public static partial class Dxcc
 
     private static readonly Lazy<PrefixData> Data = new(Load);
 
+    private static readonly Lazy<FrozenDictionary<int, (double Lat, double Lon)>> Centres = new(LoadCentres);
+
     /// <summary>
     /// The part of a callsign that tells the entity: "EA8/IK2ABC" is "EA8",
     /// "IK2ABC/P" is "IK2ABC", "DL1ABC-#" (skimmer) is "DL1ABC", "K1ABC/MM" is null.
@@ -57,6 +59,10 @@ public static partial class Dxcc
         return null;
     }
 
+    /// <summary>The centre of a DXCC entity (cty.csv, east positive), or null (F71: a skimmer outside the RBN node list).</summary>
+    public static (double Lat, double Lon)? CentreOf(int? dxcc) =>
+        dxcc is { } d && Centres.Value.TryGetValue(d, out var c) ? c : null;
+
     /// <summary>Continent (AF, AN, AS, EU, NA, OC, SA) of a DXCC entity, or null.</summary>
     public static string? ContinentOf(int? dxcc) =>
         dxcc is { } d ? Data.Value.Continents.GetValueOrDefault(d) : null;
@@ -71,6 +77,16 @@ public static partial class Dxcc
         var continents = doc.RootElement.GetProperty("continents").EnumerateObject()
             .ToFrozenDictionary(p => int.Parse(p.Name, System.Globalization.CultureInfo.InvariantCulture), p => p.Value.GetString()!);
         return new PrefixData(prefixes, continents, prefixes.Keys.Max(k => k.Length));
+    }
+
+    private static FrozenDictionary<int, (double Lat, double Lon)> LoadCentres()
+    {
+        using var stream = typeof(Dxcc).Assembly.GetManifestResourceStream("dxcc_centers.json")
+            ?? throw new InvalidOperationException("dxcc_centers.json is not embedded");
+        using var doc = JsonDocument.Parse(stream);
+        return doc.RootElement.GetProperty("centers").EnumerateObject().ToFrozenDictionary(
+            p => int.Parse(p.Name, System.Globalization.CultureInfo.InvariantCulture),
+            p => (p.Value[0].GetDouble(), p.Value[1].GetDouble()));
     }
 
     private sealed record PrefixData(

@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HamQso.Voacap.Core/HamQso.Voacap.Core.csproj" />
+    <Project Path="src/HamQso.Voacap.Host/HamQso.Voacap.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HamQso.Voacap.Tests/HamQso.Voacap.Tests.csproj" />
+    <Project Path="tests/HamQso.Voacap.Engine.Tests/HamQso.Voacap.Engine.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,13 @@
+{
+  "band": "20m",
+  "from": "2026-11-06T14:22:05Z",
+  "to": "2026-11-06T14:33:17Z",
+  "feed": {"state": "up", "since": "2026-11-06T03:12:44Z"},
+  "nodes": {"fetched_at": "2026-11-06T14:05:00Z", "count": 350, "stale": false},
+  "skimmers": [
+    {"call": "OK4YL", "locator": "JN79FX", "lat": 49.98, "lon": 14.46, "position_source": "node",
+     "dxcc": 503, "continent": "EU", "spots": 42, "last_spot_at": "2026-11-06T14:31:40Z"},
+    {"call": "Z61DX", "locator": null, "lat": 42.67, "lon": 21.17, "position_source": "country",
+     "dxcc": 522, "continent": "EU", "spots": 3, "last_spot_at": "2026-11-06T14:29:02Z"}
+  ]
+}

@@ -12,12 +12,14 @@ public class RbnLineParserTests
     [InlineData("DX de DK9IP-#:   14100.0  4U1UN          CW    20 dB  22 WPM  NCDXF B 1803Z", "4U1UN")]
     public void A_spot_line_gives_its_station_and_the_line_without_control_characters(string line, string call)
     {
-        var spot = RbnLineParser.Parse(line);
+        var at = new DateTimeOffset(2026, 11, 6, 14, 32, 0, TimeSpan.Zero);
+        var spot = RbnLineParser.Parse(line, at);
 
         Assert.Equal(call, spot!.Call);
         Assert.DoesNotContain(spot.Raw, c => char.IsControl(c));
         Assert.StartsWith("DX de ", spot.Raw, StringComparison.Ordinal);
         Assert.EndsWith("Z", spot.Raw, StringComparison.Ordinal);
+        Assert.Equal(at, spot.ReceivedAt);
     }
 
     [Theory]
@@ -25,5 +27,5 @@ public class RbnLineParserTests
     [InlineData("Please enter your call: ")]
     [InlineData("DX de EA4RCH-5:   14025.0  JA1ABC       CW CQ             2009Z")]
     [InlineData("")]
-    public void Anything_else_is_not_a_spot(string line) => Assert.Null(RbnLineParser.Parse(line));
+    public void Anything_else_is_not_a_spot(string line) => Assert.Null(RbnLineParser.Parse(line, DateTimeOffset.UnixEpoch));
 }

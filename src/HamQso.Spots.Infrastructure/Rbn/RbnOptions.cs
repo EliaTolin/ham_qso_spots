@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace HamQso.Spots.Infrastructure.Rbn;
 
-/// <summary>Configuration section "Rbn": the Reverse Beacon Network feed of the coverage test (GET /v1/rbn).</summary>
+/// <summary>Configuration section "Rbn": the Reverse Beacon Network feed of the coverage test (GET /v1/rbn), the node list and the skimmer activity (F71).</summary>
 public sealed class RbnOptions
 {
     public const string Section = "Rbn";
@@ -35,4 +35,21 @@ public sealed class RbnOptions
 
     /// <summary>An SSE comment this often keeps proxies from closing a quiet stream.</summary>
     public TimeSpan Heartbeat { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// F71: the connection stays open for good, every spot counted as skimmer
+    /// activity, and the node list is read. Off: open only while someone listens
+    /// (a local run that should not reach the real RBN).
+    /// </summary>
+    public bool AlwaysOn { get; set; } = true;
+
+    /// <summary>The RBN node list page (the HTML behind reversebeacon.net/nodes).</summary>
+    [Required]
+    public Uri NodesUrl { get; set; } = new("https://www.reversebeacon.net/cont_includes/status.php?t=skt");
+
+    /// <summary>How often the node list is read.</summary>
+    public TimeSpan NodesInterval { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>How often the counted activity is written to Postgres.</summary>
+    public TimeSpan ActivityFlush { get; set; } = TimeSpan.FromSeconds(30);
 }

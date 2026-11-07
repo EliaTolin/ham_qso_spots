@@ -2,5 +2,7 @@
   <ItemGroup>
     <!-- Copy of ham_qso_supabase/supabase/functions/_shared/data/dxcc_prefixes.json: keep them identical. -->
     <EmbeddedResource Include="Data/dxcc_prefixes.json" LogicalName="dxcc_prefixes.json" />
+    <!-- Built by scripts/build_dxcc_centers.py from ham_qso_website/data/dxcc.json (the app's cty.csv). -->
+    <EmbeddedResource Include="Data/dxcc_centers.json" LogicalName="dxcc_centers.json" />
   </ItemGroup>
 </Project>

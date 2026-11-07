@@ -86,6 +86,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RbnTelnetFeed>();
         services.AddSingleton<IRbnFeed>(sp => sp.GetRequiredService<RbnTelnetFeed>());
         services.AddSingleton<WatchRbn>();
+        // F71: node list, skimmer activity, the skimmers listening on a band.
+        services.AddSingleton<RbnNodeCatalog>();
+        services.AddSingleton<LocateSkimmer>();
+        services.AddSingleton<PostgresRbnStore>();
+        services.AddSingleton<IRbnNodeStore>(sp => sp.GetRequiredService<PostgresRbnStore>());
+        services.AddSingleton<IRbnActivityStore>(sp => sp.GetRequiredService<PostgresRbnStore>());
+        services.AddHttpClient<IRbnNodeSource, HttpRbnNodeSource>(SpotSourceFactory.ConfigureClient);
+        services.AddSingleton<RefreshRbnNodes>();
+        services.AddSingleton<RecordSkimmerActivity>();
+        services.AddSingleton<GetListeningSkimmers>();
+        services.AddSingleton<RbnSkimmersLimiter>();
+        if (configuration.GetValue($"{RbnOptions.Section}:{nameof(RbnOptions.AlwaysOn)}", true)) services.AddHostedService<RbnWorker>();
 
         services.AddSingleton(sp =>
         {

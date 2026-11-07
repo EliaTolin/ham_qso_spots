@@ -1,0 +1,5 @@
+PAUSE error in readant
+To resume execution, type go.  Other input will terminate the job.
+ Error=    2 OPENing antenna file=/tmp/i/antennas/hq/nope.
+ nch=    7
+ nc1=    7  filename=hq/nope

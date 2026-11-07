@@ -1,0 +1,123 @@
+  IONOSPHERIC COMMUNICATIONS ANALYSIS AND PREDICTION PROGRAM
+                     VOACAP   VERSION 16.1207W
+
+
+          1         2         3         4         5         6         7
+ 123456789012345678901234567890123456789012345678901234567890123456789012345
+
+ LINEMAX      55       number of lines-per-page
+ COEFFS    CCIR
+ TIME         14   14    1    1
+ MONTH      2026 11.00
+ SUNSPOT    118.
+ LABEL     TX                  RX
+ CIRCUIT   45.60N     9.20E    49.98N    14.46E  S     0
+ SYSTEM       1. 150. 3.00  90. 24.0 3.00 0.10
+ FPROB      1.00 1.00 1.00 0.00
+ ANTENNA       1    1    2   30     0.000[hq/yagi              ]  0.0    0.1000
+ ANTENNA       2    2    2   30     0.000[default/isotrope     ]  0.0    0.0000
+ FREQUENCY 14.05 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+ METHOD       30    0
+ EXECUTE
+ CIRCUIT   45.60N     9.20E    40.00N    74.00W  S     0
+ EXECUTE
+ CIRCUIT   45.60N     9.20E    45.65N     9.25E  S     0
+ EXECUTE
+ QUIT
+     CCIR Coefficients        ~METHOD 30   VOACAP L 16.1207W  PAGE   1
+
+  Nov    2026          SSN = 118.                Minimum Angle= 3.000 degrees
+  TX                  RX                    AZIMUTHS          N. MI.      KM
+  45.60 N    9.20 E - 49.98 N   14.46 E     36.97  220.87     337.7    625.4
+  XMTR  2-30 IONCAP #24[hq/yagi              ] Az=  0.0 OFFaz= 37.0   0.100kW
+  RCVR  2-30 +  0.0 dBi[default/isotrope     ] Az=  0.0 OFFaz=220.9
+  3 MHz NOISE = -150.0 dBW     REQ. REL = 90%    REQ. SNR = 24.0 dB
+  MULTIPATH POWER TOLERANCE =  3.0 dB   MULTIPATH DELAY TOLERANCE =  0.100 ms
+
+  14.0 14.4 14.1  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0 FREQ
+        1F2  1F2   -    -    -    -    -    -    -    -    -    -  MODE  
+       46.8 43.3   -    -    -    -    -    -    -    -    -    -  TANGLE
+        3.2  3.0   -    -    -    -    -    -    -    -    -    -  DELAY 
+        360  317   -    -    -    -    -    -    -    -    -    -  V HITE
+       0.50 0.55   -    -    -    -    -    -    -    -    -    -  MUFday
+        124  122   -    -    -    -    -    -    -    -    -    -  LOSS  
+         26   28   -    -    -    -    -    -    -    -    -    -  DBU   
+       -104 -102   -    -    -    -    -    -    -    -    -    -  S DBW 
+       -166 -166   -    -    -    -    -    -    -    -    -    -  N DBW 
+         62   64   -    -    -    -    -    -    -    -    -    -  SNR   
+        -11  -14   -    -    -    -    -    -    -    -    -    -  RPWRG 
+       0.97 0.97   -    -    -    -    -    -    -    -    -    -  REL   
+       0.00 0.00   -    -    -    -    -    -    -    -    -    -  MPROB 
+       0.64 0.66   -    -    -    -    -    -    -    -    -    -  S PRB 
+       25.0 25.0   -    -    -    -    -    -    -    -    -    -  SIG LW
+        8.7  8.0   -    -    -    -    -    -    -    -    -    -  SIG UP
+       26.5 26.5   -    -    -    -    -    -    -    -    -    -  SNR LW
+        9.9  9.3   -    -    -    -    -    -    -    -    -    -  SNR UP
+        6.8  7.3   -    -    -    -    -    -    -    -    -    -  TGAIN 
+        0.0  0.0   -    -    -    -    -    -    -    -    -    -  RGAIN 
+         35   38   -    -    -    -    -    -    -    -    -    -  SNRxx 
+     CCIR Coefficients        ~METHOD 30   VOACAP L 16.1207W  PAGE   2
+
+  Nov    2026          SSN = 118.                Minimum Angle= 3.000 degrees
+  TX                  RX                    AZIMUTHS          N. MI.      KM
+  45.60 N    9.20 E - 40.00 N   74.00 W    296.84   54.58    3511.2   6502.3
+  XMTR  2-30 IONCAP #24[hq/yagi              ] Az=  0.0 OFFaz= 37.0   0.100kW
+  RCVR  2-30 +  0.0 dBi[default/isotrope     ] Az=  0.0 OFFaz=220.9
+  3 MHz NOISE = -150.0 dBW     REQ. REL = 90%    REQ. SNR = 24.0 dB
+  MULTIPATH POWER TOLERANCE =  3.0 dB   MULTIPATH DELAY TOLERANCE =  0.100 ms
+
+  14.0 37.6 14.1  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0 FREQ
+        0NA  3F2   -    -    -    -    -    -    -    -    -    -  MODE  
+       99.9  8.1   -    -    -    -    -    -    -    -    -    -  TANGLE
+       99.9 22.7   -    -    -    -    -    -    -    -    -    -  DELAY 
+       1000  255   -    -    -    -    -    -    -    -    -    -  V HITE
+       0.50 0.99   -    -    -    -    -    -    -    -    -    -  MUFday
+       1000  165   -    -    -    -    -    -    -    -    -    -  LOSS  
+       -999  -15   -    -    -    -    -    -    -    -    -    -  DBU   
+       -999 -145   -    -    -    -    -    -    -    -    -    -  S DBW 
+       -180 -167   -    -    -    -    -    -    -    -    -    -  N DBW 
+       -999   22   -    -    -    -    -    -    -    -    -    -  SNR   
+       -999   23   -    -    -    -    -    -    -    -    -    -  RPWRG 
+       0.00 0.39   -    -    -    -    -    -    -    -    -    -  REL   
+       0.00 0.17   -    -    -    -    -    -    -    -    -    -  MPROB 
+       0.00 0.17   -    -    -    -    -    -    -    -    -    -  S PRB 
+       25.0 18.8   -    -    -    -    -    -    -    -    -    -  SIG LW
+       21.5  7.0   -    -    -    -    -    -    -    -    -    -  SIG UP
+       26.8 21.0   -    -    -    -    -    -    -    -    -    -  SNR LW
+       22.3  8.7   -    -    -    -    -    -    -    -    -    -  SNR UP
+        0.0  5.2   -    -    -    -    -    -    -    -    -    -  TGAIN 
+        0.0  0.0   -    -    -    -    -    -    -    -    -    -  RGAIN 
+       -999    1   -    -    -    -    -    -    -    -    -    -  SNRxx 
+     CCIR Coefficients        ~METHOD 30   VOACAP L 16.1207W  PAGE   3
+
+  Nov    2026          SSN = 118.                Minimum Angle= 3.000 degrees
+  TX                  RX                    AZIMUTHS          N. MI.      KM
+  45.60 N    9.20 E - 45.65 N    9.25 E     32.57  212.60       3.6      6.6
+  XMTR  2-30 IONCAP #24[hq/yagi              ] Az=  0.0 OFFaz= 37.0   0.100kW
+  RCVR  2-30 +  0.0 dBi[default/isotrope     ] Az=  0.0 OFFaz=220.9
+  3 MHz NOISE = -150.0 dBW     REQ. REL = 90%    REQ. SNR = 24.0 dB
+  MULTIPATH POWER TOLERANCE =  3.0 dB   MULTIPATH DELAY TOLERANCE =  0.100 ms
+
+  14.0 11.8 14.1  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0 FREQ
+        1F2  1F2   -    -    -    -    -    -    -    -    -    -  MODE  
+       89.6 89.6   -    -    -    -    -    -    -    -    -    -  TANGLE
+        3.5  3.5   -    -    -    -    -    -    -    -    -    -  DELAY 
+        532  532   -    -    -    -    -    -    -    -    -    -  V HITE
+       0.50 0.06   -    -    -    -    -    -    -    -    -    -  MUFday
+        123  131   -    -    -    -    -    -    -    -    -    -  LOSS  
+         25   19   -    -    -    -    -    -    -    -    -    -  DBU   
+       -103 -111   -    -    -    -    -    -    -    -    -    -  S DBW 
+       -164 -166   -    -    -    -    -    -    -    -    -    -  N DBW 
+         61   54   -    -    -    -    -    -    -    -    -    -  SNR   
+        -14   -4   -    -    -    -    -    -    -    -    -    -  RPWRG 
+       0.98 0.93   -    -    -    -    -    -    -    -    -    -  REL   
+       0.00 0.00   -    -    -    -    -    -    -    -    -    -  MPROB 
+       0.69 0.55   -    -    -    -    -    -    -    -    -    -  S PRB 
+       20.9 25.0   -    -    -    -    -    -    -    -    -    -  SIG LW
+        7.0 13.3   -    -    -    -    -    -    -    -    -    -  SIG UP
+       22.7 26.4   -    -    -    -    -    -    -    -    -    -  SNR LW
+        8.7 14.1   -    -    -    -    -    -    -    -    -    -  SNR UP
+        4.9  7.2   -    -    -    -    -    -    -    -    -    -  TGAIN 
+        0.0  0.0   -    -    -    -    -    -    -    -    -    -  RGAIN 
+         38   28   -    -    -    -    -    -    -    -    -    -  SNRxx 
+ *****END OF RUN*****     VOACAP 16.1207W

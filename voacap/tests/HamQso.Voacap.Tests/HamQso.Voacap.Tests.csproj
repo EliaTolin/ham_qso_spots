@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HamQso.Voacap.Host/HamQso.Voacap.Host.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- voacap_*_v1.json: F71 shared fixtures (plan, 3.3), identical in ham_qso_supabase. voacapl_*: recorded from voacapl 0.7.6 on 07/11/2026. -->
+    <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,4 @@
+{
+  "request": {"month": 11, "utc_hour": 14, "ionosonde": {"lat": 41.9, "lon": 12.5}, "measured_mufd_mhz": 18.2, "ssn_month": 118},
+  "response": {"engine": "voacapl 0.7.6", "ssn_effective": 131, "predicted_mufd_mhz": 17.1, "iterations": 7}
+}

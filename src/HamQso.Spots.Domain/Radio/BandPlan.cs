@@ -49,6 +49,20 @@ public static partial class BandPlan
         return null;
     }
 
+    /// <summary>The dial of the FT8/FT4/JS8 calling window <paramref name="khz"/> falls in, when <paramref name="mode"/> is that mode; null otherwise.</summary>
+    public static double? CallingDialFor(double khz, string? mode)
+    {
+        var m = (mode ?? "").Trim().ToUpperInvariant();
+        foreach (var w in Windows)
+        {
+            if (w.Mode == m && khz >= w.From && khz < w.To) return w.Dial;
+        }
+        return null;
+    }
+
+    /// <summary>The farthest a spot of a calling window can be from its dial.</summary>
+    public static double CallingWindowReachKhz => Windows.Max(w => Math.Max(w.To - w.Dial, w.Dial - w.From));
+
     /// <summary>The mode written in a comment, as a whole word, in Wavelog's order: CW, digital, phone.</summary>
     public static string? DeclaredMode(string? comment)
     {
@@ -84,9 +98,9 @@ public static partial class BandPlan
     /// <summary>Mode from the frequency alone, or "" where the segment does not tell.</summary>
     public static string BandPlanMode(double khz, IaruRegion? region)
     {
-        foreach (var (from, to, mode) in Windows)
+        foreach (var w in Windows)
         {
-            if (khz >= from && khz < to) return mode;
+            if (khz >= w.From && khz < w.To) return w.Mode;
         }
         var table = region switch
         {
@@ -143,17 +157,23 @@ public static partial class BandPlan
 
     private static (double, double, Use) Mixed(double from, double to) => (from, to, Use.Mixed);
 
-    /// <summary>FT8/FT4/JS8 calling windows [from, to) kHz: dial -0.6 to +3.2 (60m: 5356-5359).</summary>
-    private static readonly (double From, double To, string Mode)[] Windows =
+    private readonly record struct CallingWindow(double Dial, string Mode, double From, double To);
+
+    /// <summary>Spots sit up to 0.6 kHz below the dial and 3.2 kHz above it.</summary>
+    private static CallingWindow Window(double dial, string mode, double? from = null, double? to = null) =>
+        new(dial, mode, from ?? dial - 0.6, to ?? dial + 3.2);
+
+    /// <summary>FT8/FT4/JS8 calling windows [from, to) kHz, as in the app's band_plan.dart. FT8 wins where they overlap: it comes first.</summary>
+    private static readonly CallingWindow[] Windows =
     [
-        (1839.4, 1843.2, "FT8"), (3572.4, 3576.2, "FT8"), (3574.9, 3578.7, "FT4"), (5356, 5359, "FT8"),
-        (7046.9, 7050.7, "FT4"), (7073.4, 7077.2, "FT8"), (7077.4, 7081.2, "JS8"),
-        (10135.4, 10139.2, "FT8"), (10139.4, 10143.2, "FT4"),
-        (14073.4, 14077.2, "FT8"), (14077.4, 14079.4, "JS8"), (14079.4, 14083.2, "FT4"),
-        (18099.4, 18103.2, "FT8"), (18103.4, 18107.2, "FT4"), (21073.4, 21077.2, "FT8"), (21139.4, 21143.2, "FT4"),
-        (24914.4, 24918.2, "FT8"), (24918.4, 24922.2, "FT4"), (28073.4, 28077.2, "FT8"), (28179.4, 28183.2, "FT4"),
-        (50312.4, 50316.2, "FT8"), (50317.4, 50321.2, "FT4"), (50322.4, 50326.2, "FT8"), (70153.4, 70157.2, "FT8"),
-        (144169.4, 144173.2, "FT4"), (144173.4, 144177.2, "FT8"), (432173.4, 432177.2, "FT8"), (1296173.4, 1296177.2, "FT8"),
+        Window(1840, "FT8"), Window(3573, "FT8"), Window(3575.5, "FT4"), Window(5357, "FT8", from: 5356, to: 5359),
+        Window(7047.5, "FT4"), Window(7074, "FT8"), Window(7078, "JS8"),
+        Window(10136, "FT8"), Window(10140, "FT4"),
+        Window(14074, "FT8"), Window(14078, "JS8", to: 14079.4), Window(14080, "FT4"),
+        Window(18100, "FT8"), Window(18104, "FT4"), Window(21074, "FT8"), Window(21140, "FT4"),
+        Window(24915, "FT8"), Window(24919, "FT4"), Window(28074, "FT8"), Window(28180, "FT4"),
+        Window(50313, "FT8"), Window(50318, "FT4"), Window(50323, "FT8"), Window(70154, "FT8"),
+        Window(144170, "FT4"), Window(144174, "FT8"), Window(432174, "FT8"), Window(1296174, "FT8"),
     ];
 
     private static readonly (double, double, Use)[] Region1 =

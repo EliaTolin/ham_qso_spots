@@ -15,9 +15,6 @@ namespace HamQso.Spots.Infrastructure.Sources.Telnet;
 /// </summary>
 public static partial class DxClusterLineParser
 {
-    /// <summary>A live line in the future (HHMM only) is from yesterday.</summary>
-    private static readonly TimeSpan FutureTolerance = TimeSpan.FromMinutes(5);
-
     public static Spot? Parse(string feed, string line, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(line);
@@ -62,7 +59,8 @@ public static partial class DxClusterLineParser
         var utc = now.ToUniversalTime();
         var t = new DateTimeOffset(utc.Year, utc.Month, utc.Day,
             int.Parse(hhmm[..2], CultureInfo.InvariantCulture), int.Parse(hhmm[2..], CultureInfo.InvariantCulture), 0, TimeSpan.Zero);
-        return t > utc + FutureTolerance ? t.AddDays(-1) : t;
+        // A live line in the future (HHMM only) is from yesterday.
+        return t > utc + Spot.FutureTolerance ? t.AddDays(-1) : t;
     }
 
     [GeneratedRegex(@"^DX de ([A-Z0-9/#-]+?):?\s+(\d+(?:\.\d+)?)\s+([A-Z0-9/]+)\s+(.*?)\s*((?:[01]\d|2[0-3])[0-5]\d)Z(?:\s+([A-R]{2}\d{2}))?\s*$", RegexOptions.IgnoreCase)]

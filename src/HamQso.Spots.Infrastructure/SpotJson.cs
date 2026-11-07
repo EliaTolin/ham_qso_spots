@@ -27,6 +27,9 @@ public static class SpotJson
     public static SpotPage Deserialize(string json) =>
         JsonSerializer.Deserialize<SpotPage>(json, Options) ?? throw new JsonException("empty spot page");
 
+    /// <summary>{"spot": {…}} or {"spot": null}: the answer of GET /v1/spots/on-frequency.</summary>
+    public static string SerializeOnFrequency(Spot? spot) => JsonSerializer.Serialize(new OnFrequencyAnswer(spot), Options);
+
     /// <summary>The text of an enum value ("BandPlan" is "band_plan").</summary>
     public static string Name<T>(T value)
         where T : struct, Enum => Naming.ConvertName(value.ToString());
@@ -34,4 +37,7 @@ public static class SpotJson
     public static T Parse<T>(string name)
         where T : struct, Enum =>
         Enum.GetValues<T>().First(v => Name(v) == name);
+
+    /// <summary>Never: "no spot" is said, against the rule of leaving out fields without a value.</summary>
+    private sealed record OnFrequencyAnswer([property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] Spot? Spot);
 }

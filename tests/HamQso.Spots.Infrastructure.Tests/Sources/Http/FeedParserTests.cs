@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure.Sources.Http;
 
@@ -54,6 +55,16 @@ public class FeedParserTests
 
         Assert.Equal([true, false], spots.Select(s => s.Qrt));
         Assert.Equal(("KN4OK", 7218.0, "W4C/WM-001"), (spots[0].Callsign, spots[0].FrequencyKhz, spots[0].Reference));
+    }
+
+    [Theory]
+    [InlineData("QRT\u00e9")]
+    [InlineData("\u00e9QRT")]
+    public void WWFF_skips_QRT_with_the_same_word_boundaries_as_the_app(string remarks)
+    {
+        var body = JsonSerializer.Serialize(new[] { new { id = 1, activator = "K1ABC", frequency_khz = 14285, remarks } });
+
+        Assert.Empty(new WwffFeed().Parse(body, Now));
     }
 
     [Fact]

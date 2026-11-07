@@ -88,5 +88,8 @@ public class GetSpotsTests
 
         public Task<SpotPage> ChangedSinceAsync(SpotFilter filter, long sinceSeq, int limit, CancellationToken cancellationToken) =>
             Task.FromResult(new SpotPage(Seq, false, [.. all.Where(s => s.Seq > sinceSeq).OrderBy(s => s.Seq).Take(limit)]));
+
+        public Task<IReadOnlyList<Spot>> RecentNearAsync(double fromKhz, double toKhz, DateTimeOffset since, DateTimeOffset until, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

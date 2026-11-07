@@ -280,4 +280,117 @@ public sealed class PostgresSpotStoreTests : IAsyncLifetime
         Assert.Equal(expected.Feeds, actual.Feeds);
         Assert.Equal(expected.Spotters, actual.Spotters);
     }
+
+    // F88: the candidates of GET /v1/spots/on-frequency.
+
+    private static Spot Near(string call, double khz, string mode, DateTimeOffset time, bool qrt = false, SpotProgram program = SpotProgram.Dx, string? comment = null) => new()
+    {
+        Program = program,
+        SpotKey = call,
+        Callsign = call,
+        FrequencyKhz = khz,
+        Mode = mode,
+        SpotTime = time,
+        Feeds = ["DXFun"],
+        Qrt = qrt,
+        Comment = comment,
+    };
+
+    [Fact]
+    public async Task The_candidates_are_the_recent_spots_of_the_frequency_range_in_any_program()
+    {
+        await store.SaveAsync(
+            [
+                Near("INSIDE", 14285, "USB", Now.AddMinutes(-1)),
+                Near("POTA", 14286, "USB", Now.AddMinutes(-2), program: SpotProgram.Pota),
+                Near("LOW_EDGE", 14282, "USB", Now.AddMinutes(-3)),
+                Near("HIGH_EDGE", 14288, "USB", Now.AddMinutes(-3)),
+                Near("TIME_EDGE", 14285, "USB", Now.AddMinutes(-10)),
+                Near("QRT", 14285, "USB", Now.AddMinutes(-1), qrt: true),
+                Near("BELOW", 14281.9, "USB", Now),
+                Near("ABOVE", 14288.1, "USB", Now),
+                Near("OLD", 14285, "USB", Now.AddMinutes(-10).AddSeconds(-1)),
+            ],
+            TestContext.Current.CancellationToken);
+
+        var spots = await store.RecentNearAsync(14282, 14288, Now.AddMinutes(-10), Now.AddMinutes(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["HIGH_EDGE", "INSIDE", "LOW_EDGE", "POTA", "QRT", "TIME_EDGE"], spots.Select(s => s.Callsign).Order(StringComparer.Ordinal));
+        Assert.True(spots.Single(s => s.Callsign == "QRT").Qrt);
+    }
+
+    [Fact]
+    public async Task The_candidates_stop_at_the_time_asked_ends_included()
+    {
+        await store.SaveAsync(
+            [
+                Near("AHEAD_EDGE", 14285, "USB", Now.AddMinutes(5)),
+                Near("TOO_FAR", 14285, "USB", Now.AddMinutes(5).AddSeconds(1)),
+            ],
+            TestContext.Current.CancellationToken);
+
+        var spots = await store.RecentNearAsync(14282, 14288, Now.AddMinutes(-10), Now.AddMinutes(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal("AHEAD_EDGE", Assert.Single(spots).Callsign);
+    }
+
+    [Fact]
+    public async Task A_spot_in_the_future_or_with_QRT_in_the_comment_is_not_suggested_through_the_real_archive()
+    {
+        await store.SaveAsync(
+            [
+                Near("FUTURE", 14285, "USB", Now.AddMinutes(6)),
+                Near("QRT_COMMENT", 14285, "USB", Now.AddMinutes(-1), comment: "qrt off to next peak"),
+                Near("ON_AIR", 14285, "USB", Now.AddMinutes(-3)),
+            ],
+            TestContext.Current.CancellationToken);
+        var getSpot = new HamQso.Spots.Application.Reading.GetSpotOnFrequency(store, new Microsoft.Extensions.Time.Testing.FakeTimeProvider(Now));
+
+        var spot = await getSpot.ExecuteAsync(14285, TestContext.Current.CancellationToken);
+
+        Assert.Equal("ON_AIR", spot?.Callsign);
+    }
+
+    [Fact]
+    public async Task An_FT8_spot_off_the_dial_is_found_through_the_real_archive()
+    {
+        await store.SaveAsync(
+            [
+                Near("JA1FT8", 14075.8, "FT8", Now.AddMinutes(-2)),
+                Near("OLD_FT8", 14075.8, "FT8", Now.AddMinutes(-11)),
+            ],
+            TestContext.Current.CancellationToken);
+        var getSpot = new HamQso.Spots.Application.Reading.GetSpotOnFrequency(store, new Microsoft.Extensions.Time.Testing.FakeTimeProvider(Now));
+
+        var spot = await getSpot.ExecuteAsync(14074.0, TestContext.Current.CancellationToken);
+
+        Assert.Equal("JA1FT8", spot?.Callsign);
+    }
+
+    [Fact]
+    public async Task The_candidates_use_the_index_on_the_spot_time_with_7_days_in_the_archive()
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
+        // About 200,000 spots over the 7 days the archive keeps, on the whole HF range.
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            insert into dx_spots (program, spot_key, callsign, frequency_khz, spot_time, feeds)
+            select 'dx', 'K' || n, 'K' || n, 1800 + (n % 27000), @Now - make_interval(secs => n * 3.0), '{DXFun}'
+            from generate_series(1, 200000) n;
+            analyze dx_spots;
+            """,
+            new { Now = Now.UtcDateTime },
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        var plan = await connection.QueryAsync<string>(new CommandDefinition(
+            "explain " + PostgresSpotStore.RecentNearSql,
+            new { FromKhz = 14070.7, ToKhz = 14077.3, Since = Now.AddMinutes(-10).UtcDateTime, Until = Now.AddMinutes(5).UtcDateTime },
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        var text = string.Join('\n', plan);
+        TestContext.Current.TestOutputHelper?.WriteLine(text);
+        Assert.Contains("dx_spots_spot_time", text, StringComparison.Ordinal);
+        Assert.Contains(plan, line => line.Contains("Index Cond", StringComparison.Ordinal) && line.Contains("spot_time >=", StringComparison.Ordinal) && line.Contains("spot_time <=", StringComparison.Ordinal));
+        Assert.DoesNotContain("Seq Scan", text, StringComparison.Ordinal);
+    }
 }

@@ -113,6 +113,6 @@ After any fix: redeploy if needed, check `/health`, run the end-to-end tests ([d
 
 - No rate limit on `/v1/spots` (sending spots has one: 3 a minute and 20 an hour per user, 60 a minute for the whole server, kept in memory, so a restart resets it).
 - `/v1/dx/spots` is not in `/health`: the sending sessions open only when a user spots.
-- No rate limit on `/v1/rbn/skimmers` (one cheap query per call; the forecast function asks it once per test and once every 15 minutes per square).
+- RBN limits (security review F71; in code, like the proxy's): stream `GET /v1/rbn/{call}`: 2 at once per user; anonymous users also 4 at once per client address (`AddressKey`, IPv6 by /64) and 300 at once on the whole server (`WatchRbn`), refused with `429` and `Retry-After: 30`. `GET /v1/rbn/skimmers` (`RbnSkimmersLimiter`): the proxy's `UserLimits` (120 a minute per user, 429) and `AnonymousServerLimits` (1000 a minute for all anonymous users, 503 `busy`); no limit per address, because `coverage_forecast` calls from Supabase's addresses with the user's token. Its answer is cached per band and minutes of the window for 1 minute (`GetListeningSkimmers.CacheFor`). All in memory: a restart resets the counts. If real users are refused often, raise them in code.
 - Container logs are only in the Coolify UI (not reachable by the Coolify API for compose applications).
 - Permissions still to ask: DX Summit (no published terms), SOTA commercial licence (`marketing/outreach/04-sota-mt.md`), Reverse Beacon Network (no written terms; Elia writes to them, F71).

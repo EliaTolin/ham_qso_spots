@@ -226,6 +226,21 @@ public sealed class RbnApiTests : IDisposable
     }
 
     [Fact]
+    public async Task Anonymous_users_of_one_address_have_four_v2_streams_then_429_with_Retry_After()
+    {
+        var open = new List<Stream>();
+        for (var i = 0; i < 4; i++) open.Add(await Open("/v1/rbn/IU2DEMO?v=2", $"{TestHost.UserTokenPrefix}anon{i}"));
+        Assert.All(open, s => Assert.Equal(HttpStatusCode.OK, s.Response.StatusCode));
+
+        using var fifth = await Open("/v1/rbn/IU2DEMO?v=2", $"{TestHost.UserTokenPrefix}anon5");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, fifth.Response.StatusCode);
+        Assert.Equal("too_many_streams", JsonElement.Parse(await fifth.Response.Content.ReadAsStringAsync(Ct)).GetProperty("error").GetString());
+        Assert.Equal("30", fifth.Response.Headers.GetValues("Retry-After").Single());
+        foreach (var s in open) s.Dispose();
+    }
+
+    [Fact]
     public async Task The_v1_stream_is_unchanged_raw_lines_and_no_status_event()
     {
         using var stream = await Open("/v1/rbn/IU4VRB?v=1");

@@ -84,6 +84,8 @@ internal sealed class FakeActivityStore : IRbnActivityStore
 
     public (string Band, DateTimeOffset From, DateTimeOffset To)? LastRead { get; private set; }
 
+    public int Reads { get; private set; }
+
     public Task AddAsync(IReadOnlyCollection<ActivityMinute> minutes, CancellationToken cancellationToken)
     {
         if (Failure is not null) return Task.FromException(Failure);
@@ -94,6 +96,7 @@ internal sealed class FakeActivityStore : IRbnActivityStore
     public Task<IReadOnlyList<ActivityMinute>> ReadAsync(string band, DateTimeOffset fromMinute, DateTimeOffset until, CancellationToken cancellationToken)
     {
         LastRead = (band, fromMinute, until);
+        Reads++;
         lock (Rows) return Task.FromResult<IReadOnlyList<ActivityMinute>>([.. Rows]);
     }
 

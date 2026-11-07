@@ -17,7 +17,11 @@ public class GetListeningSkimmersTests
     private readonly FakeRbnFeed feed = new();
     private readonly RbnNodeCatalog catalog = new();
 
-    private GetListeningSkimmers Use() => new(store, feed, catalog, new LocateSkimmer(catalog), new FakeTimeProvider(Now));
+    private readonly FakeTimeProvider time = new(Now);
+
+    private GetListeningSkimmers Use() => use ??= new(store, feed, catalog, new LocateSkimmer(catalog), time);
+
+    private GetListeningSkimmers? use;
 
     [Theory]
     [InlineData(null)]
@@ -51,5 +55,32 @@ public class GetListeningSkimmersTests
         // A skimmer with no position (no node, unknown entity) is left out: the app could not draw it.
         Assert.Equal(["OK4YL", "Z61DX"], r.Skimmers.Select(s => s.Skimmer.Call));
         Assert.Equal((42, "node"), (r.Skimmers[0].Spots, r.Skimmers[0].Skimmer.Position!.Source));
+    }
+
+    // Security review F71: the answer is the same for everyone, so it is read once per band and minute.
+
+    [Fact]
+    public async Task The_same_band_and_minutes_are_read_once_a_minute_whatever_the_seconds()
+    {
+        await Use().ExecuteAsync("20m", null, null, Ct);
+        time.Advance(TimeSpan.FromSeconds(20)); // same minutes of the window: 14:30-14:40 → 14:30:20-14:40:20
+        await Use().ExecuteAsync("20m", null, null, Ct);
+        await Use().ExecuteAsync("20m", Start, End, Ct);
+        await Use().ExecuteAsync("20m", Start.AddSeconds(30), End.AddSeconds(10), Ct);
+        await Use().ExecuteAsync("40m", null, null, Ct);
+
+        Assert.Equal(3, store.Reads);
+    }
+
+    [Fact]
+    public async Task A_read_is_kept_one_minute_then_read_again()
+    {
+        await Use().ExecuteAsync("20m", Start, End, Ct);
+        time.Advance(TimeSpan.FromSeconds(61));
+
+        var r = (await Use().ExecuteAsync("20m", Start, End, Ct)).Value!;
+
+        Assert.Equal(2, store.Reads);
+        Assert.Equal((new DateTimeOffset(2026, 11, 6, 14, 22, 5, TimeSpan.Zero), End), (r.From, r.To));
     }
 }

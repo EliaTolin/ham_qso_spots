@@ -387,7 +387,7 @@ Read the body as a stream of lines: `event: <type>` names the next event (none i
 - **Who**: v2: every HamQSO user, anonymous ones included (RBN spots are public and the call is in the path). v1: signed-in users only, anonymous users get `403 account_required`. HamQRG users get `403 not_allowed`. The token goes in `Authorization: Bearer` only; a token in the query is not read.
 - **`{callsign}`**: the station to hear, slashes included (`EA8/IU4VRB/P`), letters and digits with at least one of each, at most 20 characters, as written (no spaces). The server matches spots **as the app does**: the base call of the spot equals the base call asked (`baseCallsign`, shared cases in `base_callsign_cases.json`), so `IU4VRB`, `IU4VRB/P`, `EA8/IU4VRB` all match `IU4VRB`.
 - **Duration**: at most **15 minutes** per stream; then `event: end` / `data: time_limit` and the server closes it (open a new one to go on). Close it yourself when the test ends.
-- **Limit**: at most **2 streams at once per user** (`429 too_many_streams`).
+- **Limits**: at most **2 streams at once per user**; for anonymous users (free to create, so a new one per stream must not get around the limit) also at most **4 at once per client address** (IPv6 by /64) and **300 anonymous streams on the whole server**. Refused: `429` with `Retry-After: 30` (`too_many_streams`, or `busy` for the server ceiling).
 - A comment `: ping` every 15 s keeps proxies from closing a quiet stream.
 
 **v2 events** (shared fixture `rbn_sse_v2.txt`, identical in the app's tests):
@@ -429,7 +429,8 @@ data: {"feed":"reconnecting"}
 | `400` | `{"error": "invalid_version"}` | `v` is not `1` or `2` |
 | `401` | empty | No token, or not a valid Supabase token |
 | `403` | `{"error": "account_required"}` / `{"error": "not_allowed"}` | Anonymous user on v1 / reader project |
-| `429` | `{"error": "too_many_streams"}` | 2 streams of this user already open |
+| `429` | `{"error": "too_many_streams", "retry_after_s": 30}` + `Retry-After` | 2 streams of this user already open, or (anonymous) 4 of this client address |
+| `429` | `{"error": "busy", "retry_after_s": 30}` + `Retry-After` | (v2, anonymous) 300 anonymous streams open on the server |
 
 ## REST: `GET /v1/rbn/skimmers` (who is listening, F71)
 
@@ -440,7 +441,8 @@ GET https://spot.hamqso.app/v1/rbn/skimmers?band=20m&from=2026-11-06T14:32:05Z&t
 Authorization: Bearer <access_token>
 ```
 
-- **Who**: every HamQSO user, anonymous ones included (`401` without a valid token, `403 not_allowed` for HamQRG).
+- **Who**: every HamQSO user, **anonymous ones included** (`401` without a valid token, `403 not_allowed` for HamQRG). The forecast function `coverage_forecast` calls it with the user's own `Authorization`, anonymous users too: the limits count that user, not the caller's address (all of Supabase shares a few addresses).
+- **Limits** (the proxy's values): 120 calls a minute per user (`429 rate_limited` with `Retry-After`), 1000 a minute for all anonymous users together (`503 busy`). The answer is the same for everyone: the server reads the skimmers of a band and of the same minutes once a minute.
 - **`band`**: required, one of the server's bands (`160m` … `23cm`, lowercase `m`).
 - **`from`, `to`**: the start and end of the test, ISO 8601 (UTC with `Z`, or with an offset; without one it is read as UTC). Both or neither. With them the window is **from 10 minutes before `from` to `to`**; without them, the last 10 minutes. The window must end at most 1 minute in the future and start (10 minutes before `from`) at most **48 hours** ago: older activity is not kept.
 - **Listening** means at least one spot on that band in the window (counted per minute of arrival at the server: the minute in which the window starts counts whole).
@@ -477,6 +479,8 @@ Authorization: Bearer <access_token>
 | `400` | `{"error": "invalid_window"}` | Only one of `from`/`to`, not a time, `from` after `to`, in the future, or older than 48 hours |
 | `401` | empty | No token, or not a valid Supabase token |
 | `403` | `{"error": "not_allowed"}` | A token of a reader project (HamQRG) |
+| `429` | `{"error": "rate_limited", "retry_after_s": N}` + `Retry-After` | Over 120 calls a minute for this user |
+| `503` | `{"error": "busy"}` | Over 1000 calls a minute for all anonymous users |
 
 ## REST: `GET /v1/references/catalog` (the offline reference catalog)
 

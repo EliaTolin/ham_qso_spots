@@ -96,6 +96,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RefreshRbnNodes>();
         services.AddSingleton<RecordSkimmerActivity>();
         services.AddSingleton<GetListeningSkimmers>();
+        services.AddSingleton<RbnSkimmersLimiter>();
         if (configuration.GetValue($"{RbnOptions.Section}:{nameof(RbnOptions.AlwaysOn)}", true)) services.AddHostedService<RbnWorker>();
 
         services.AddSingleton(sp =>

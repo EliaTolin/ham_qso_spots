@@ -98,4 +98,21 @@ public sealed class RbnSkimmersApiTests : IDisposable
 
         Assert.Equal(status, response.StatusCode);
     }
+
+    [Fact]
+    public async Task An_anonymous_user_over_the_limit_gets_429_with_Retry_After()
+    {
+        var token = $"{TestHost.UserTokenPrefix}anon-many";
+        for (var i = 0; i < Application.Proxy.ProxyRateLimiter.UserLimits[0].Count; i++)
+        {
+            using var ok = await Get("?band=20m", token);
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+
+        using var response = await Get("?band=20m", token);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal("rate_limited", await Error(response));
+        Assert.True(response.Headers.Contains("Retry-After"));
+    }
 }

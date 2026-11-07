@@ -1,5 +1,6 @@
 using System.Globalization;
 using HamQso.Spots.Application.Ports;
+using HamQso.Spots.Application.Proxy;
 using HamQso.Spots.Application.Rbn;
 using HamQso.Spots.Domain.Callsigns;
 using HamQso.Spots.Infrastructure.Rbn;
@@ -25,11 +26,16 @@ public static partial class RbnEndpoints
 {
     public static void MapRbnApi(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/v1/rbn/skimmers", async (HttpContext http, ITokenValidator tokens, GetListeningSkimmers skimmers, CancellationToken ct) =>
+        app.MapGet("/v1/rbn/skimmers", async (HttpContext http, ITokenValidator tokens, GetListeningSkimmers skimmers, RbnSkimmersLimiter limiter, CancellationToken ct) =>
         {
             var user = await BearerAuth.UserAsync(http, tokens, ct);
-            if (user is null) return Results.Unauthorized();
+            if (user is null || user.UserId.Length == 0) return Results.Unauthorized();
             if (user.IsReader) return ApiResults.Error(StatusCodes.Status403Forbidden, "not_allowed");
+            switch (limiter.TryAcquire(user.UserId, user.IsAnonymous))
+            {
+                case (ProxyAdmission.RateLimited, var wait): return ApiResults.RateLimited(http, wait ?? TimeSpan.Zero);
+                case (ProxyAdmission.Busy, _): return ApiResults.Error(StatusCodes.Status503ServiceUnavailable, "busy");
+            }
             var q = http.Request.Query;
             if (!TryTime(q["from"], out var from) || !TryTime(q["to"], out var to)) return ApiResults.Error(StatusCodes.Status400BadRequest, "invalid_window");
             var result = await skimmers.ExecuteAsync(q["band"].ToString() is { Length: > 0 } b ? b : null, from, to, ct);
@@ -51,8 +57,10 @@ public static partial class RbnEndpoints
             if (user.IsAnonymous && !v2) return ApiResults.Error(StatusCodes.Status403Forbidden, "account_required");
             // As written in the path: no spaces or line breaks to trim away. Slashes are part of it (EA8/IU4VRB/P).
             if (callsign is null || callsign.Trim() != callsign || !Callsign.IsPlausible(callsign)) return ApiResults.Error(StatusCodes.Status400BadRequest, "invalid_callsign");
-            using var lease = watch.TryStart(user.UserId);
-            if (lease is null) return ApiResults.Error(StatusCodes.Status429TooManyRequests, "too_many_streams");
+            // The address of the client: behind Traefik, from X-Forwarded-For of a trusted proxy only (ClientAddress).
+            var admission = watch.TryStart(user.UserId, user.IsAnonymous, AddressKey.Of(http.Connection.RemoteIpAddress));
+            using var lease = admission.Lease;
+            if (lease is null) return ApiResults.Refused(http, StatusCodes.Status429TooManyRequests, admission.Error!, admission.RetryAfter ?? WatchRbn.RetryAfter);
 
             var station = callsign.ToUpperInvariant();
             var (lines, reason) = await StreamAsync(http, watch, station, v2, options.Value, time);

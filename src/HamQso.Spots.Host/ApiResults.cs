@@ -7,12 +7,15 @@ public static class ApiResults
 {
     public static IResult Error(int status, string error) => Results.Json(new { error }, statusCode: status);
 
-    public static IResult RateLimited(HttpContext http, TimeSpan wait)
+    public static IResult RateLimited(HttpContext http, TimeSpan wait) => Refused(http, StatusCodes.Status429TooManyRequests, "rate_limited", wait);
+
+    /// <summary>A refusal with Retry-After (and retry_after_s in the body).</summary>
+    public static IResult Refused(HttpContext http, int status, string error, TimeSpan wait)
     {
         ArgumentNullException.ThrowIfNull(http);
         var seconds = RetryAfterSeconds(wait);
         http.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
-        return Results.Json(new { error = "rate_limited", retry_after_s = seconds }, statusCode: StatusCodes.Status429TooManyRequests);
+        return Results.Json(new { error, retry_after_s = seconds }, statusCode: status);
     }
 
     /// <summary>Whole seconds, at least 1: a client that waits that long is let through.</summary>

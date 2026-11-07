@@ -15,12 +15,25 @@ namespace HamQso.Spots.Infrastructure.Rbn;
 /// <see cref="RbnOptions.Linger"/> after the last one leaves, reopened with
 /// exponential backoff when it drops or goes mute. Every spot goes to every
 /// listener; a listener that does not keep up loses its oldest lines, never
-/// slows the others.
+/// slows the others. F71: with <see cref="RbnOptions.AlwaysOn"/> a background
+/// listener never leaves, so the connection stays open. The state (down, up
+/// with the first spot of a session, reconnecting after a drop, down again
+/// after <see cref="DownAfter"/> of reconnecting) goes to the clients and to
+/// /health as "rbn".
 /// </summary>
-public sealed partial class RbnTelnetFeed(IOptions<RbnOptions> options, TimeProvider time, ILogger<RbnTelnetFeed> logger) : IRbnFeed, IAsyncDisposable
+public sealed partial class RbnTelnetFeed(IOptions<RbnOptions> options, TimeProvider time, ISourceHealth health, ILogger<RbnTelnetFeed> logger) : IRbnFeed, IAsyncDisposable
 {
     /// <summary>Lines kept for a slow listener before the oldest are dropped.</summary>
     public const int ListenerBuffer = 1000;
+
+    /// <summary>Name of the feed in /health.</summary>
+    public const string HealthName = "rbn";
+
+    /// <summary>Reconnecting for longer than this is down.</summary>
+    public static readonly TimeSpan DownAfter = TimeSpan.FromMinutes(5);
+
+    private RbnFeedStatus status = new(RbnFeedState.Down, null);
+    private TaskCompletionSource changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private static readonly Encoding Latin1 = Encoding.Latin1;
 
@@ -38,6 +51,37 @@ public sealed partial class RbnTelnetFeed(IOptions<RbnOptions> options, TimeProv
         {
             lock (gate) return running is not null;
         }
+    }
+
+    public RbnFeedStatus Status
+    {
+        get
+        {
+            RbnFeedStatus s;
+            lock (gate) s = status;
+            return s.State == RbnFeedState.Reconnecting && s.Since is { } since && time.GetUtcNow() - since > DownAfter
+                ? new RbnFeedStatus(RbnFeedState.Down, since + DownAfter)
+                : s;
+        }
+    }
+
+    public Task WaitForChangeAsync(CancellationToken cancellationToken)
+    {
+        lock (gate) return changed.Task.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>Moves to <paramref name="state"/> (nothing if already there) and wakes who waits for a change.</summary>
+    private void SetState(RbnFeedState state)
+    {
+        TaskCompletionSource wake;
+        lock (gate)
+        {
+            if (status.State == state) return;
+            status = new RbnFeedStatus(state, time.GetUtcNow());
+            wake = changed;
+            changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+        wake.TrySetResult();
     }
 
     public async IAsyncEnumerable<RbnLine> ReadAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -88,6 +132,7 @@ public sealed partial class RbnTelnetFeed(IOptions<RbnOptions> options, TimeProv
             ending = loop;
         }
         if (ending is not null) await ending.ConfigureAwait(false);
+        SetState(RbnFeedState.Down);
     }
 
     private void StopIfNobody()
@@ -100,6 +145,7 @@ public sealed partial class RbnTelnetFeed(IOptions<RbnOptions> options, TimeProv
             stopping?.Dispose();
             stopping = null;
         }
+        SetState(RbnFeedState.Down);
     }
 
     private void Broadcast(RbnLine line)
@@ -117,15 +163,20 @@ public sealed partial class RbnTelnetFeed(IOptions<RbnOptions> options, TimeProv
         {
             while (!stop.IsCancellationRequested)
             {
+                string reason;
                 try
                 {
                     await SessionAsync(() => attempt = 0, stop).ConfigureAwait(false);
-                    LogDropped(logger, options.Value.Host, "closed");
+                    reason = "closed";
                 }
                 catch (Exception e) when (!stop.IsCancellationRequested)
                 {
-                    LogDropped(logger, options.Value.Host, e.GetType().Name);
+                    reason = e.GetType().Name;
                 }
+                if (stop.IsCancellationRequested) break;
+                LogDropped(logger, options.Value.Host, reason);
+                health.Failed(HealthName, reason);
+                if (Status.State == RbnFeedState.Up) SetState(RbnFeedState.Reconnecting);
                 var seconds = Math.Min(options.Value.MaxBackoff.TotalSeconds, Math.Pow(2, Math.Min(attempt++, 7)));
                 await Task.Delay(TimeSpan.FromSeconds(seconds), time, stop).ConfigureAwait(false);
             }
@@ -179,8 +230,13 @@ public sealed partial class RbnTelnetFeed(IOptions<RbnOptions> options, TimeProv
             if (refusals.Count > 0) await stream.WriteAsync(refusals.ToArray(), stop).ConfigureAwait(false);
             foreach (var text in lines.Append(Latin1.GetString(data)))
             {
-                if (RbnLineParser.Parse(text) is not { } spot) continue;
+                if (RbnLineParser.Parse(text, lastData) is not { } spot) continue;
                 onSpot();
+                if (status.State != RbnFeedState.Up)
+                {
+                    SetState(RbnFeedState.Up);
+                    health.Succeeded(HealthName);
+                }
                 Broadcast(spot);
             }
             if (!loggedIn && ClusterPrompts.IsLogin(lines.Pending))

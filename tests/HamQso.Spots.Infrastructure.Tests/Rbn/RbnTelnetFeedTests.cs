@@ -12,7 +12,7 @@ public sealed class RbnTelnetFeedTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static RbnTelnetFeed Feed(int port, TimeSpan? linger = null, TimeSpan? idle = null) => new(
+    private static RbnTelnetFeed Feed(int port, TimeSpan? linger = null, TimeSpan? idle = null, RecordingHealth? health = null, TimeProvider? time = null) => new(
         Options.Create(new RbnOptions
         {
             Host = "127.0.0.1",
@@ -23,7 +23,8 @@ public sealed class RbnTelnetFeedTests
             Linger = linger ?? TimeSpan.FromSeconds(30),
             MaxBackoff = TimeSpan.FromSeconds(1),
         }),
-        TimeProvider.System,
+        time ?? TimeProvider.System,
+        health ?? new RecordingHealth(),
         NullLogger<RbnTelnetFeed>.Instance);
 
     /// <summary>Reads the feed in the background until cancelled.</summary>
@@ -85,8 +86,8 @@ public sealed class RbnTelnetFeedTests
         await Until(() => a.Lines.Count == 1 && b.Lines.Count == 1);
 
         Assert.Equal("N0CALL-87", Assert.Single(node.Connections).Login);
-        Assert.Equal(new RbnLine(Spot, "G0BQV"), a.Lines.Single());
-        Assert.Equal(new RbnLine(Spot, "G0BQV"), b.Lines.Single());
+        Assert.Equal((Spot, "G0BQV", "OK4YL"), (a.Lines.Single().Raw, a.Lines.Single().Call, a.Lines.Single().Spot.Skimmer));
+        Assert.Equal((Spot, "G0BQV"), (b.Lines.Single().Raw, b.Lines.Single().Call));
     }
 
     [Fact]
@@ -149,5 +150,69 @@ public sealed class RbnTelnetFeedTests
 
         await node.SendAsync(Spot);
         await Until(() => listener.Lines.Count == 1);
+    }
+
+    [Fact]
+    public async Task The_state_is_down_before_up_with_the_first_spot_reconnecting_when_dropped_and_down_when_stopped()
+    {
+        var health = new RecordingHealth();
+        await using var node = new FakeRbnNode();
+        await using var feed = Feed(node.Port, linger: TimeSpan.FromMilliseconds(300), health: health);
+        Assert.Equal(new RbnFeedStatus(RbnFeedState.Down, null), feed.Status);
+
+        var listener = new Listener(feed);
+        await node.WaitForLoginAsync();
+        var change = feed.WaitForChangeAsync(Ct);
+        await node.SendAsync(Spot);
+        await change.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        Assert.Equal(RbnFeedState.Up, feed.Status.State);
+        Assert.Equal(true, health.LastOf(RbnTelnetFeed.HealthName));
+
+        change = feed.WaitForChangeAsync(Ct);
+        node.Connections.Single().Client.Client.Shutdown(System.Net.Sockets.SocketShutdown.Both);
+        await change.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        Assert.Equal(RbnFeedState.Reconnecting, feed.Status.State);
+        Assert.Equal(false, health.LastOf(RbnTelnetFeed.HealthName));
+
+        await node.WaitForLoginAsync(2);
+        await node.SendAsync(Spot);
+        await Until(() => feed.Status.State == RbnFeedState.Up);
+
+        await listener.DisposeAsync();
+        await Until(() => feed.Status.State == RbnFeedState.Down);
+    }
+
+    [Fact]
+    public async Task Reconnecting_for_longer_than_allowed_is_down()
+    {
+        await using var node = new FakeRbnNode();
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var feed = Feed(node.Port, time: time);
+        await using var listener = new Listener(feed);
+        await node.WaitForLoginAsync();
+        await node.SendAsync(Spot);
+        await Until(() => feed.Status.State == RbnFeedState.Up);
+        node.Connections.Single().Client.Client.Shutdown(System.Net.Sockets.SocketShutdown.Both);
+        await Until(() => feed.Status.State == RbnFeedState.Reconnecting);
+        var since = feed.Status.Since!.Value;
+
+        time.Advance(RbnTelnetFeed.DownAfter + TimeSpan.FromSeconds(1));
+
+        Assert.Equal(new RbnFeedStatus(RbnFeedState.Down, since + RbnTelnetFeed.DownAfter), feed.Status);
+    }
+
+    [Fact]
+    public async Task A_line_carries_the_moment_it_arrived()
+    {
+        await using var node = new FakeRbnNode();
+        var at = new DateTimeOffset(2026, 11, 6, 14, 32, 12, 418, TimeSpan.Zero);
+        await using var feed = Feed(node.Port, time: new Microsoft.Extensions.Time.Testing.FakeTimeProvider(at));
+        await using var listener = new Listener(feed);
+        await node.WaitForLoginAsync();
+
+        await node.SendAsync(Spot);
+        await Until(() => listener.Lines.Count == 1);
+
+        Assert.Equal(at, listener.Lines.Single().ReceivedAt);
     }
 }

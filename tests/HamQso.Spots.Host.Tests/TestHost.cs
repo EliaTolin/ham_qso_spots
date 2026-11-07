@@ -45,6 +45,15 @@ public sealed class TestHost : WebApplicationFactory<Program>
 
     public FakeRbnFeed Rbn { get; } = new();
 
+    /// <summary>The skimmers' activity per minute (rbn_skimmer_activity).</summary>
+    public FakeRbnActivity RbnActivity { get; } = new();
+
+    /// <summary>The node list in use (set it as a good read would).</summary>
+    public Application.Rbn.RbnNodeCatalog RbnNodes { get; } = new();
+
+    /// <summary>"Now" for GET /v1/rbn/skimmers (its window is checked against it).</summary>
+    public Microsoft.Extensions.Time.Testing.FakeTimeProvider SkimmersClock { get; } = new(new DateTimeOffset(2026, 11, 6, 14, 40, 0, TimeSpan.Zero));
+
     /// <summary>The proxy allowlist of the test (empty: no service).</summary>
     public Dictionary<string, Uri> Upstreams { get; } = new(StringComparer.Ordinal);
 
@@ -78,6 +87,10 @@ public sealed class TestHost : WebApplicationFactory<Program>
             s.AddSingleton<IProfileReader>(Profiles);
             s.AddSingleton<IClusterSender>(Cluster);
             s.AddSingleton<IRbnFeed>(Rbn);
+            s.AddSingleton<IRbnActivityStore>(RbnActivity);
+            s.AddSingleton(RbnNodes);
+            s.AddSingleton(sp => new Application.Rbn.GetListeningSkimmers(
+                RbnActivity, Rbn, RbnNodes, sp.GetRequiredService<Application.Rbn.LocateSkimmer>(), SkimmersClock));
             s.AddSingleton(new Infrastructure.Proxy.ProxyAllowlist(Upstreams));
             s.AddSingleton<IStartupFilter, LocalPortFilter>();
         });
@@ -177,12 +190,27 @@ public sealed class TestHost : WebApplicationFactory<Program>
             NearbyFailure is null ? Task.FromResult(Nearby) : Task.FromException<IReadOnlyList<Domain.Spots.Spot>>(NearbyFailure);
     }
 
-    /// <summary>The RBN without telnet: <see cref="Push"/> sends a line to everyone reading.</summary>
+    /// <summary>The RBN without telnet: Push sends a line to everyone reading, <see cref="SetStatus"/> changes its state.</summary>
     public sealed class FakeRbnFeed : IRbnFeed
     {
         private readonly System.Collections.Concurrent.ConcurrentDictionary<System.Threading.Channels.Channel<RbnLine>, bool> readers = new();
+        private TaskCompletionSource changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int Readers => readers.Count;
+
+        public RbnFeedStatus Status { get; private set; } = new(RbnFeedState.Up, new DateTimeOffset(2026, 11, 6, 3, 12, 44, TimeSpan.Zero));
+
+        public void SetStatus(RbnFeedStatus status)
+        {
+            Status = status;
+            Interlocked.Exchange(ref changed, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+        }
+
+        public Task WaitForChangeAsync(CancellationToken cancellationToken) => changed.Task.WaitAsync(cancellationToken);
+
+        /// <summary>Sends the RBN line <paramref name="raw"/>, received at <paramref name="at"/> (now by default).</summary>
+        public void Push(string raw, DateTimeOffset? at = null) =>
+            Push(new RbnLine(raw, Domain.Rbn.RbnSpotLine.Parse(raw)!, at ?? DateTimeOffset.UtcNow));
 
         public void Push(RbnLine line)
         {
@@ -202,6 +230,18 @@ public sealed class TestHost : WebApplicationFactory<Program>
                 readers.TryRemove(channel, out _);
             }
         }
+    }
+
+    public sealed class FakeRbnActivity : IRbnActivityStore
+    {
+        public List<Domain.Rbn.ActivityMinute> Rows { get; } = [];
+
+        public Task AddAsync(IReadOnlyCollection<Domain.Rbn.ActivityMinute> minutes, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<Domain.Rbn.ActivityMinute>> ReadAsync(string band, DateTimeOffset fromMinute, DateTimeOffset until, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Domain.Rbn.ActivityMinute>>([.. Rows.Where(r => r.Band == band && r.Minute >= fromMinute && r.Minute <= until)]);
+
+        public Task<int> DeleteOlderThanAsync(DateTimeOffset before, CancellationToken cancellationToken) => Task.FromResult(0);
     }
 
     /// <summary>Keeps the formatted log lines (with exceptions) of every category.</summary>

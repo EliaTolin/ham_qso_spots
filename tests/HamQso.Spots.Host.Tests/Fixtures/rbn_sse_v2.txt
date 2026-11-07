@@ -1,0 +1,8 @@
+: connected
+
+event: spot
+data: {"skimmer":"OK4YL","call":"IU2DEMO","khz":14045.1,"snr_db":17,"wpm":23,"kind":"CQ","band":"20m","rbn_time":"1432Z","received_at":"2026-11-06T14:32:12.418Z","position":{"locator":"JN79FX","lat":49.98,"lon":14.46,"source":"node"},"dxcc":503,"continent":"EU"}
+
+event: status
+data: {"feed":"reconnecting"}
+

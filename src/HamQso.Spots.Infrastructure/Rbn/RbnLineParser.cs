@@ -1,25 +1,16 @@
-using System.Text.RegularExpressions;
 using HamQso.Spots.Application.Ports;
+using HamQso.Spots.Domain.Rbn;
 
 namespace HamQso.Spots.Infrastructure.Rbn;
 
-/// <summary>
-/// A spot line of the RBN telnet feed, as the app's RbnLineParser reads it:
-/// <code>DX de OK4YL-#:   7025.10  G0BQV   CW   7 dB  23 WPM  CQ   2055Z</code>
-/// Anything else (banner, prompt) is not a spot.
-/// </summary>
-public static partial class RbnLineParser
+/// <summary>A line of the RBN telnet feed as an <see cref="RbnLine"/> (the reading is <see cref="RbnSpotLine"/>); anything else is not a spot.</summary>
+public static class RbnLineParser
 {
-    /// <summary>The spot (the line trimmed, without control characters) or null.</summary>
-    public static RbnLine? Parse(string line)
+    /// <summary>The spot (the line trimmed, without control characters), received at <paramref name="receivedAt"/>, or null.</summary>
+    public static RbnLine? Parse(string line, DateTimeOffset receivedAt)
     {
         ArgumentNullException.ThrowIfNull(line);
-        var text = new string([.. line.Where(c => !char.IsControl(c))]).Trim();
-        var m = Spot().Match(text);
-        return m.Success ? new RbnLine(text, m.Groups[1].Value.ToUpperInvariant()) : null;
+        var text = RbnSpotLine.Clean(line);
+        return RbnSpotLine.Parse(text) is { } spot ? new RbnLine(text, spot, receivedAt) : null;
     }
-
-    // The app's pattern; only the decoded station is kept apart.
-    [GeneratedRegex(@"^DX de [A-Z0-9/]+(?:-\d+)?(?:-#)?:\s+\d+(?:\.\d+)?\s+([A-Z0-9/]+)\s+[A-Z0-9]+\s+-?\d+\s+dB\s+\d+\s+(?:WPM|BPS)\s+.+?\s+\d{4}Z", RegexOptions.IgnoreCase)]
-    private static partial Regex Spot();
 }

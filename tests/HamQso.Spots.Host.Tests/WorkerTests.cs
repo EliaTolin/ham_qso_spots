@@ -115,7 +115,8 @@ public sealed class WorkerTests : IDisposable
     [Fact]
     public async Task Retention_deletes_spots_older_than_7_days_at_start_and_every_hour_also_after_an_error()
     {
-        using var worker = new RetentionWorker(store, time, NullLogger<RetentionWorker>.Instance);
+        var rbn = new RbnActivityDeletes();
+        using var worker = new RetentionWorker(store, rbn, time, NullLogger<RetentionWorker>.Instance);
         store.FailDeletes = 1;
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
@@ -125,6 +126,24 @@ public sealed class WorkerTests : IDisposable
 
         Assert.Equal(Now - RetentionWorker.Window, store.DeleteCalls[0]);
         Assert.Equal(TimeSpan.FromHours(1), store.DeleteCalls[1] - store.DeleteCalls[0]);
+        // F71: the RBN activity is kept 48 hours (the first round failed before it).
+        Assert.Equal(store.DeleteCalls[1] + RetentionWorker.Window - TimeSpan.FromHours(48), rbn.Calls[0]);
+    }
+
+    private sealed class RbnActivityDeletes : IRbnActivityStore
+    {
+        public List<DateTimeOffset> Calls { get; } = [];
+
+        public Task AddAsync(IReadOnlyCollection<Domain.Rbn.ActivityMinute> minutes, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<Domain.Rbn.ActivityMinute>> ReadAsync(string band, DateTimeOffset fromMinute, DateTimeOffset until, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Domain.Rbn.ActivityMinute>>([]);
+
+        public Task<int> DeleteOlderThanAsync(DateTimeOffset before, CancellationToken cancellationToken)
+        {
+            lock (Calls) Calls.Add(before);
+            return Task.FromResult(0);
+        }
     }
 
     private sealed class OneBatchSource(string name, Spot[] spots) : ISpotSource

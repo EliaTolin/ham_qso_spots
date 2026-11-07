@@ -38,6 +38,8 @@ Port `8081` of the server (`/mqtt/*`, broker auth) and `1883` of Mosquitto (the 
 
 Options are validated at startup: a missing required value stops the server with a clear error.
 
+The VOACAP service of the coverage test (F71) is a separate Coolify application from this repo (`voacap/Dockerfile`, `https://voacap.hamqso.app`): see [voacap/README.md](../voacap/README.md#deploy-coolify).
+
 ## Secrets
 
 | Secret | Production | Local development |

@@ -21,6 +21,8 @@ Production: `https://spot.hamqso.app` (Coolify, application `HamQSO_Spots`). Hea
 | [docs/architecture.md](docs/architecture.md) | How the server works inside: sources, merging, enrichment, seq, alerts, access control, design decisions |
 | [docs/operations.md](docs/operations.md) | Running it: deployment, configuration, secrets, monitoring, what to do when an alarm fires |
 | [docs/development.md](docs/development.md) | Working on it: build, tests, coverage, end-to-end and load tests, adding a source |
+| [voacap/README.md](voacap/README.md) | The VOACAP service of the coverage test (F71): its own container, `https://voacap.hamqso.app`, API, tests, deploy |
+| [tools/voacap-calibration/README.md](tools/voacap-calibration/README.md) | Tuning the forecast against the RBN history (F71, phase 5) |
 
 ## Quick start
 

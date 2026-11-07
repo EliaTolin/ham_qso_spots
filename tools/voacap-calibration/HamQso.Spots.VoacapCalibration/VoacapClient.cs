@@ -13,8 +13,8 @@ public sealed class VoacapClient(HttpClient http, Uri baseUrl, string token)
         ArgumentNullException.ThrowIfNull(e);
         var body = new JsonObject
         {
-            ["month"] = e.Slot.Month,
-            ["utc_hour"] = e.Slot.Hour,
+            ["month"] = e.Start.Month,
+            ["utc_hour"] = e.Start.Hour,
             ["frequency_mhz"] = Math.Round(e.FrequencyMhz, 3),
             ["settings"] = new JsonObject { ["method"] = 30, ["noise_dbw"] = noiseDbw, ["min_takeoff_deg"] = 3, ["required_snr_dbhz"] = requiredSnr },
             ["receive_antenna"] = new JsonObject { ["model"] = "isotropic", ["gain_dbi"] = 0 },

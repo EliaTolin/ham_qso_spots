@@ -38,6 +38,20 @@ public sealed record Score(int Events, double Expected, int Heard, double Brier,
             margins.Length);
     }
 
+    /// <summary>
+    /// The best settings of a group: the lowest Brier among those whose median margin is within ±10%;
+    /// if none is, the median margin nearest 0; settings with no margin at all (NaN) only when no other has one.
+    /// </summary>
+    public static (T Settings, Score Score) Best<T>(IReadOnlyList<(T Settings, Score Score)> scored)
+    {
+        ArgumentNullException.ThrowIfNull(scored);
+        var withMargin = scored.Where(x => !double.IsNaN(x.Score.MedianMargin)).ToArray();
+        var near = withMargin.Where(x => Math.Abs(x.Score.MedianMargin) <= 0.10).ToArray();
+        return near.Length > 0 ? near.MinBy(x => x.Score.Brier)
+            : withMargin.Length > 0 ? withMargin.MinBy(x => Math.Abs(x.Score.MedianMargin))
+            : scored.MinBy(x => x.Score.Brier);
+    }
+
     private static double Median(double[] sorted) => Percentile(sorted, 0.5);
 
     /// <summary>Linear interpolation between the closest ranks (as numpy's default).</summary>

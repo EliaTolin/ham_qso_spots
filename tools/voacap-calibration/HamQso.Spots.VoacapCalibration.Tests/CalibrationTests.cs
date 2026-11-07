@@ -185,4 +185,14 @@ public class ScoreTests
         Assert.Equal(2, s.WithMargin);
         Assert.Equal((0, 1, 1), (s.Above, s.Near, s.Below));
     }
+
+    private static Score S(double brier, double median) => new(10, 10, 10, brier, median, 0, 0, 0, median, median, double.IsNaN(median) ? 0 : 5);
+
+    [Fact]
+    public void The_best_is_the_lowest_Brier_within_10_percent_else_the_nearest_margin_never_a_missing_margin()
+    {
+        Assert.Equal("b", Score.Best([("a", S(0.10, 0.30)), ("b", S(0.12, 0.05)), ("c", S(0.13, -0.02))]).Settings);
+        Assert.Equal("a", Score.Best([("a", S(0.12, -0.17)), ("b", S(0.10, double.NaN)), ("c", S(0.11, 0.34))]).Settings);
+        Assert.Equal("b", Score.Best([("a", S(0.12, double.NaN)), ("b", S(0.10, double.NaN))]).Settings);
+    }
 }

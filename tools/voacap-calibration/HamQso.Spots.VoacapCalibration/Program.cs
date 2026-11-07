@@ -67,9 +67,7 @@ foreach (var (name, include) in groups)
         report.AppendLine(Csv.Line(name, combo.Noise, combo.Snr, s.Events, s.WithMargin, Math.Round(s.Expected, 1), s.Heard, Math.Round(s.Brier, 4), Math.Round(s.P10Margin, 3), Math.Round(s.MedianMargin, 3), Math.Round(s.P90Margin, 3), s.Above, s.Near, s.Below));
     }
     // Best: the lowest Brier among those whose median margin is within ±10%; if none, the median margin nearest 0.
-    var scored = combos.Select(c => (Combo: c, Score: ScoreOf(c, include))).ToArray();
-    var near = scored.Where(x => Math.Abs(x.Score.MedianMargin) <= 0.10).ToArray();
-    best[name] = near.Length > 0 ? near.MinBy(x => x.Score.Brier) : scored.MinBy(x => Math.Abs(x.Score.MedianMargin));
+    best[name] = Score.Best(combos.Select(c => (c, ScoreOf(c, include))).ToArray());
 }
 var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 var gridFile = Path.Combine(cache, $"calibration-{stamp}.csv");
@@ -77,11 +75,14 @@ await File.WriteAllTextAsync(gridFile, report.ToString());
 
 var chosen = options.Export ?? best["all"].Combo;
 // The settings of a test: those of its band (--export-band), else the chosen ones.
-(double Noise, double Snr) For(CalibrationEvent e) => options.ExportBand.TryGetValue(e.Band, out var c) ? c : chosen;
+(double Noise, double Snr) For(CalibrationEvent e) =>
+    options.ExportBand.TryGetValue(e.Band, out var c) ? c
+    : options.ExportDaylight.TryGetValue(CalibrationEvents.IsDay(e.Start, e.StationPosition.Lon) ? "day" : "night", out var d) ? d
+    : chosen;
 var chosenRels = sample.Select((e, i) => rels[For(e)][i]).ToArray();
 Score ChosenScore(Func<CalibrationEvent, bool> include) => Score.Of(
     [.. sample.Select((e, i) => (e, i)).Where(x => include(x.e)).Select(x => Outcome(x.e, chosenRels[x.i]))]);
-Console.WriteLine($"Best per group (lowest Brier with |median margin| ≤ 10%); chosen for the export: {chosen.Noise} dBW, {chosen.Snr} dB-Hz{string.Concat(options.ExportBand.Select(b => $", {b.Key} {b.Value.Noise}/{b.Value.Snr}"))}");
+Console.WriteLine($"Best per group (lowest Brier with |median margin| ≤ 10%); chosen for the export: {chosen.Noise} dBW, {chosen.Snr} dB-Hz{string.Concat(options.ExportBand.Concat(options.ExportDaylight).Select(b => $", {b.Key} {b.Value.Noise}/{b.Value.Snr}"))}");
 Console.WriteLine("group  best(noise,snr)  brier  p10/median/p90 margin  | with chosen: brier  p10/median/p90  tests(with margin)");
 foreach (var (name, include) in groups)
 {
@@ -147,8 +148,13 @@ internal static class Csv
 internal sealed record Args(
     IReadOnlyList<string> Days, IReadOnlyList<string> Bands, int PerStratum, int Seed, int Parallel,
     IReadOnlyList<double> Noise, IReadOnlyList<double> Snr, (double Noise, double Snr)? Export, string ExportPath, Uri VoacapUrl, string Token, int HistoryStations,
-    IReadOnlyDictionary<string, (double Noise, double Snr)> ExportBand)
+    IReadOnlyDictionary<string, (double Noise, double Snr)> ExportBand,
+    IReadOnlyDictionary<string, (double Noise, double Snr)> ExportDaylight)
 {
+    private static Dictionary<string, (double Noise, double Snr)> Pairs(string? text) =>
+        (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(b => b.Split('=', '/')).ToDictionary(
+            b => b[0], b => (double.Parse(b[1], CultureInfo.InvariantCulture), double.Parse(b[2], CultureInfo.InvariantCulture)), StringComparer.Ordinal);
+
     public static Args Parse(string[] args)
     {
         string? Get(string name) => args.SkipWhile(a => a != name).Skip(1).FirstOrDefault();
@@ -172,9 +178,9 @@ internal sealed record Args(
             new Uri(Environment.GetEnvironmentVariable("VOACAP_URL") ?? "http://127.0.0.1:18090"),
             token,
             int.Parse(Get("--history-stations") ?? "8", CultureInfo.InvariantCulture),
-            // --export-band 40m=-135/54,15m=-135/39: per band; each pair must be in the grid.
-            (Get("--export-band") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(b => b.Split('=', '/')).ToDictionary(
-                b => b[0], b => (double.Parse(b[1], CultureInfo.InvariantCulture), double.Parse(b[2], CultureInfo.InvariantCulture)), StringComparer.Ordinal));
+            // --export-band 40m=-135/54,15m=-135/39 and --export-daylight day=-135/41,night=-135/47; each pair must be in the grid.
+            Pairs(Get("--export-band")),
+            Pairs(Get("--export-daylight")));
     }
 }
 

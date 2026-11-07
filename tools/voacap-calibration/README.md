@@ -41,7 +41,7 @@ dotnet run -c Release --project tools/voacap-calibration/HamQso.Spots.VoacapCali
   [--history-stations 8] [--seed 71] [--parallel 6]
 ```
 
-`--export-band` gives a band its own pair for the exports and the "with chosen" scores (each pair must be in the grid). The grid of 36 pairs on 500 tests takes about an hour; a few pairs about a minute. `VOACAP_URL` and `VOACAP_TOKEN` point it elsewhere.
+`--export-daylight day=-135/41,night=-135/47` gives day and night their own pair. `--per-stratum 100000` uses every test (no sampling). `--export-band` gives a band its own pair for the exports and the "with chosen" scores (each pair must be in the grid). The grid of 36 pairs on 500 tests takes about an hour; a few pairs about a minute. `VOACAP_URL` and `VOACAP_TOKEN` point it elsewhere.
 
 **Limits of the method.**
 - The stations' real power and antennas are unknown: the margin is exactly that difference, on average.
@@ -79,3 +79,7 @@ With the starting values VOACAP promises far more than the RBN hears: almost eve
 | All | | 500 (201) | 0.111 | −92% / −1% / +649% |
 
 The plan's starting values (−150 dBW, 24 dB-Hz): Brier 0.251, median margin −84%. One pair for every band (−135/49): Brier 0.112, median +6%, but 15 m at +224%. 10 m needs more days with the band open.
+
+## Independent check and final values (07/11/2026, evening)
+
+The per-band values above came from samples of 75 tests and moved by up to 5 dB from one sample to another. With every test of the 19 days (1,998, all 8 bands of the app: 80, 40, 30, 20, 17, 15, 12, 10 m) and then on **15 days never used** (December 2025, April, August, September 2026, October 2024 with 10 m open; 1,495 tests), per-band and day/night rules do no better than one value (Brier 0.126 for all), and the day/night difference reverses. Final proposal: **noise −135 dBW, required SNR 42 dB-Hz, every band**: Brier 0.114 / 0.126, median margin −8% / +19% (calibration / new days). 10 m at the solar maximum: VOACAP very pessimistic (median +207%). WSPR's declared power does not track the real power (SNR does not change with it), so it cannot check the power effect; wspr.live forbids commercial use. Details in the F71 note.

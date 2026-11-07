@@ -13,7 +13,8 @@ HamQTH, DX Summit ─────►│   sources → IngestSpots → Postgres (
 POTA, SOTA, WWFF ──────►│                        └→ Mosquitto (MQTT news) ◄── mosquitto-go-auth ── /mqtt/*    │
                         │   GET /v1/spots (lists)  POST /v1/dx/spots (send, telnet as the user)  GET /health  │
                         │   /v1/proxy/{service} (web app → QRZ, eQSL, SOTA… without CORS)                     │
-                        │   GET /v1/rbn/{call} (SSE, coverage test; one shared RBN telnet)                    │
+                        │   GET /v1/rbn/{call} (SSE, coverage test; one RBN telnet, always open)              │
+                        │   GET /v1/rbn/skimmers (who listens on a band; RBN node list, activity 48 h)        │
                         └──────────┬──────────────────────────────┬───────────────────────────────────────────┘
                                    │ alert_spots (secret key)     │ wss://spot.hamqso.app/mqtt, https://spot.hamqso.app/v1/spots
                                    ▼                              ▼
@@ -24,16 +25,16 @@ POTA, SOTA, WWFF ──────►│                        └→ Mosquitt
 | Container | Image | Role |
 |---|---|---|
 | `server` | this repo (`Dockerfile`) | sources, ingestion, archive, publishing, REST API, spot sending, CORS proxy and RBN stream for the web app, broker auth backend, health |
-| `postgres` | `postgres:17-alpine` | the archive (`dx_spots`), 7 days, volume `postgres-data` |
+| `postgres` | `postgres:17-alpine` | the archive (`dx_spots`), 7 days; the RBN node list (`rbn_nodes`) and the skimmers' activity (`rbn_skimmer_activity`, 48 hours); volume `postgres-data` |
 | `mosquitto` | `deploy/mosquitto/Dockerfile` (`iegomez/mosquitto-go-auth` + config) | MQTT broker for the apps; no persistence |
 
 ## Code layout (clean architecture)
 
 | Project | Contains | Depends on |
 |---|---|---|
-| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, base callsign (shared cases with the app and the backend), duplicate rule, the spot on a frequency (`SpotOnFrequency`, shared cases with the app), enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`). Pure functions only | nothing |
-| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`, `IRbnFeed`), use cases (`IngestSpots`, `GetSpots`, `GetSpotOnFrequency`, `SendDxSpot`, `ForwardToUpstream`, `WatchRbn`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
-| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`), proxy allowlist and forwarding (`Proxy/`), shared RBN telnet feed (`Rbn/`) | Application |
+| `HamQso.Spots.Domain` | `Spot`, bands, band plan and mode, DXCC by prefix, base callsign (shared cases with the app and the backend), duplicate rule, the spot on a frequency (`SpotOnFrequency`, shared cases with the app), enrichment, topics, the DX line a user may send and the telnet login (`Spotting/`), the RBN rules of F71 (`Rbn/`: the RBN line, where a skimmer is, which skimmers listen; `Geo/Maidenhead`). Pure functions only | nothing |
+| `HamQso.Spots.Application` | Ports (`ISpotSource`, `ISpotStore`, `ISpotReader`, `ISpotPublisher`, `IAlertNotifier`, `ITokenValidator`, `ISourceHealth`, `IProfileReader`, `IClusterSender`, `IUpstreamProxy`, `IRbnFeed`, `IRbnNodeSource`, `IRbnNodeStore`, `IRbnActivityStore`), use cases (`IngestSpots`, `GetSpots`, `GetSpotOnFrequency`, `SendDxSpot`, `ForwardToUpstream`, `WatchRbn`, `RefreshRbnNodes`, `RecordSkimmerActivity`, `GetListeningSkimmers`, `LocateSkimmer`), in-memory dedup, sliding-window limits (`Limits/`), broker access rules, health registry | Domain |
+| `HamQso.Spots.Infrastructure` | Adapters: telnet and HTTP sources, Postgres store, MQTT publisher, Supabase alerts notifier, JWT validator, Supabase profile reader, telnet sender (`Sending/`), proxy allowlist and forwarding (`Proxy/`), shared RBN telnet feed, RBN node list page and RBN tables (`Rbn/`) | Application |
 | `HamQso.Spots.Host` | Composition root, background workers, CORS, endpoints (`/health`, `/v1/spots`, `/v1/spots/on-frequency`, `/v1/references/catalog`, `/v1/dx/spots`, `/v1/proxy/*`, `/v1/rbn/*`, `/mqtt/*`) | Application, Infrastructure |
 
 ## Sources
@@ -119,14 +120,28 @@ The login is the callsign of the user's profile, and nobody checks that the call
 
 There is **no limit per callsign** on purpose: since callsigns are not verified, a limit per callsign would let anyone use up a real station's budget by writing its callsign in their profile (griefing). A per-callsign rule can come back only together with callsign verification.
 
-## The RBN stream for the coverage test
+## The RBN for the coverage test
 
-The coverage test (Pro) listens to the Reverse Beacon Network for the user's station; the phone opens `telnet.reversebeacon.net:7000` itself, the web app cannot (F58 decision 9). `GET /v1/rbn/{callsign}` streams the matching lines as Server-Sent Events ([protocol.md](protocol.md#stream-get-v1rbncallsign-the-coverage-test)).
+The coverage test (Pro) listens to the Reverse Beacon Network for the user's station. Since F71 the phone no longer opens the RBN telnet itself (one connection for all of HamQSO, plan F71 decision 19): phone and web read `GET /v1/rbn/{callsign}?v=2`; the web app already out still reads v1 ([protocol.md](protocol.md#stream-get-v1rbncallsign-the-coverage-test)). The forecast of the test (Supabase `coverage_forecast`) asks `GET /v1/rbn/skimmers` which skimmers were listening on the band.
 
-- `RbnTelnetFeed`: **one** telnet connection for every listener of the server, logged in with the server's callsign (`Rbn:Callsign`, the same `N0CALL-87` as the cluster sources), opened by the first listener, closed 1 minute after the last one leaves, reopened with exponential backoff (up to 2 min) when it drops or is silent for 2 minutes. Telnet decoding, line splitting and the login prompt are the ones of the cluster sources. Every spot line goes to every listener through its own bounded queue (1000 lines, oldest dropped), so a slow browser never slows the others. RBN sends the whole world, several lines a second: the feed does not filter, the listeners do.
-- `WatchRbn`: keeps the lines whose base call equals the asked one (`Callsign.Base`, the app's `baseCallsign`, tested on the shared `base_callsign_cases.json`), at most 2 streams per user.
-- The endpoint: signed-in users only (the test needs a callsign; anonymous tokens are free to get), token in the `Authorization` header only (the web app reads the stream with `fetch`; a token in the URL would end up in logs and histories), a `: ping` every 15 s, at most 15 minutes per stream. Logged: user, callsign, number of lines, why it ended.
-- Not in `/health`: the connection exists only while someone listens.
+```
+telnet.reversebeacon.net:7000 ──► RbnTelnetFeed (one connection, as N0CALL-87)
+                                      ├─► RecordSkimmerActivity ──► rbn_skimmer_activity (skimmer, band, minute; 48 h)
+                                      └─► WatchRbn ──► GET /v1/rbn/{call} (v1 raw line, v2 JSON with the skimmer's position)
+reversebeacon.net/cont_includes/status.php?t=skt ──► RefreshRbnNodes (every 30 min) ──► rbn_nodes + RbnNodeCatalog
+GET /v1/rbn/skimmers ◄── GetListeningSkimmers (activity + LocateSkimmer + feed state + node list state)
+```
+
+- `RbnTelnetFeed`: **one** telnet connection for every listener of the server, logged in with the server's callsign (`Rbn:Callsign`, the same `N0CALL-87` as the cluster sources), reopened with exponential backoff (up to 2 min) when it drops or is silent for 2 minutes. Telnet decoding, line splitting and the login prompt are the ones of the cluster sources. Every spot line goes to every listener through its own bounded queue (1000 lines, oldest dropped), so a slow client never slows the others. RBN sends the whole world, several lines a second: the feed does not filter, the listeners do. Each line is read once (`Domain/Rbn/RbnSpotLine`, the app's pattern) and stamped with its arrival time.
+- **Always open** (F71, `Rbn:AlwaysOn`, on in production, off in `Development`): `RbnWorker` is a listener that never leaves, so the connection never closes; without it the connection opens with the first listener and closes 1 minute after the last (as before F71).
+- **State** of the feed, for the clients and `/health` (`rbn`): `down` (no connection yet, stopped, or reconnecting for more than 5 minutes), `up` (from the first spot of a session), `reconnecting` (the session dropped).
+- **Skimmer activity** (`RecordSkimmerActivity`): every spot is counted per skimmer (call without `-#`), band (`Bands.Of`) and minute of arrival, with the time of the last one, and added to `rbn_skimmer_activity` every 30 s (`Rbn:ActivityFlush`; counts not saved wait for the next flush). `RetentionWorker` deletes rows older than 48 hours every hour.
+- **Listening** (`Domain/Rbn/SkimmerActivity`, the only place of the rule): a skimmer listens on a band if it sent at least one spot there from 10 minutes before the start of the test to its end (minute granularity: the minute of the window's start counts whole). Without a test: the last 10 minutes.
+- **Node list** (`RefreshRbnNodes`, every 30 minutes, `Rbn:NodesInterval`): the HTML piece behind reversebeacon.net/nodes (not an API, about 313 KB, 350 nodes on 07/11/2026), read by `RbnNodeListParser`: call, bands, the locator its owner wrote, online, last seen. The page is not ours: every value is checked, a row that does not fit is left out, the body is capped at 4 MB. A good read replaces `rbn_nodes` and the in-memory `RbnNodeCatalog`; a page with no good row (format changed), or a site that does not answer, leaves the last good read in place and reports `rbn_nodes` failing. The list is `stale` for the clients when the last good read is older than 2 hours, when there is none, or when the last read found the format changed. Saved in Postgres so a restart does not start without positions.
+- **Position of a skimmer** (`Domain/Rbn/SkimmerPosition`, the only place of the rule): the centre of the valid 6-character locator of its node, else the centre of its DXCC entity (`Data/dxcc_centers.json`, from the app's cty.csv via the site's `data/dxcc.json`, `scripts/build_dxcc_centers.py`); two decimals. DXCC and continent come from the call (`Dxcc`), not from the node list (RBN's own entity ids are not ADIF).
+- `WatchRbn`: keeps the lines whose base call equals the asked one (`Callsign.Base`, the app's `baseCallsign`, tested on the shared `base_callsign_cases.json`), at most 2 streams per user; for v2 it describes each spot (`RbnSpotEvent`) with the skimmer's position.
+- The stream endpoint: v1 signed-in users only, v2 anonymous users too (RBN spots are public and the call is in the path); token in the `Authorization` header only (a token in the URL would end up in logs and histories), a `: ping` every 15 s, at most 15 minutes per stream, v2 adds `event: status` when the feed changes state. Logged: user, callsign, version, number of lines, why it ended.
+- RBN terms: no written terms for the telnet or the data; Elia writes to RBN for an app that is paid (F71 note, "Fonti dei dati" 4). The node list is read at most every 30 minutes, with the server's User-Agent.
 
 ## The proxy: nothing kept, nothing logged
 
@@ -186,3 +201,4 @@ The apps keep the world reference catalog offline (search, "near you" and names 
 | Web spots through the server, with the profile's callsign | F58 decisions 5 and 13: a browser has no telnet; nobody spots with someone else's callsign; few spots per user; every send logged |
 | A pass-through proxy for services without CORS, nothing logged | F58 decision 16: everything of the app works on the web; the user's credentials of other services only pass through |
 | RBN for the web over SSE, one shared telnet | F58 decision 9: the coverage test on the web; SSE is plain HTTP (EventSource, CORS, Traefik) and one connection serves everyone, instead of one per user |
+| RBN always open, the phone through the server too, skimmer positions and "listening" here | F71 decision 19 and plan: one RBN connection for all of HamQSO; the rules of where a skimmer is and whether it listens live in one place, next to the data |

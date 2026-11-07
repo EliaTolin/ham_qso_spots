@@ -18,7 +18,7 @@ args = parser.parse_args()
 lines = collections.defaultdict(dict)
 for package in ET.parse(args.cobertura).getroot().iter("package"):
     name = package.get("name")
-    if not name.startswith("HamQso.Spots.") or name.endswith(".Tests") or "LoadTest" in name:
+    if not name.startswith("HamQso.Spots.") or name.endswith(".Tests") or "LoadTest" in name or "VoacapCalibration" in name:
         continue
     for cls in package.iter("class"):
         path = cls.get("filename")

@@ -50,4 +50,16 @@ public class InMemorySpotDeduplicatorTests
         // The same old spot again (a telnet backlog): no longer remembered.
         Assert.Equal(DedupOutcome.New, dedup.Accept(Dx("DXFun")).Outcome);
     }
+
+    [Fact]
+    public void F101_a_merged_duplicate_tells_the_spotters_it_brought()
+    {
+        var dedup = new InMemorySpotDeduplicator(new FakeTimeProvider(Now));
+        dedup.Accept(Dx("DXFun") with { Spotters = ["IK2ABC"] });
+
+        var result = dedup.Accept(Dx("HamQTH", 4) with { Spotters = ["DL1XX"] });
+
+        Assert.Equal(DedupOutcome.Merged, result.Outcome);
+        Assert.Equal(["DL1XX"], result.NewSpotters);
+    }
 }

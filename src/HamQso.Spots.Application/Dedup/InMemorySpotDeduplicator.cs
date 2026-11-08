@@ -35,8 +35,9 @@ public sealed class InMemorySpotDeduplicator(TimeProvider time) : ISpotDeduplica
         }
         var merged = DuplicateRule.Merge(seen[index], spot);
         if (SameContent(seen[index], merged)) return new DedupResult(DedupOutcome.Unchanged, seen[index]);
+        var before = seen[index];
         seen[index] = merged;
-        return new DedupResult(DedupOutcome.Merged, merged);
+        return new DedupResult(DedupOutcome.Merged, merged) { NewSpotters = DuplicateRule.NewSpotters(before, merged) };
     }
 
     private static bool SameContent(Spot a, Spot b) =>

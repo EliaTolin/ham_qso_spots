@@ -5,7 +5,8 @@ using Microsoft.Extensions.Logging;
 namespace HamQso.Spots.Application.Ingestion;
 
 /// <summary>
-/// Receive spots, drop duplicates, enrich, save, publish what changed, alert.
+/// Receive spots, drop duplicates, enrich, save, publish what changed, alert
+/// (new spots and respots, <see cref="AlertableSpots"/>).
 /// One batch at a time, whatever source it comes from. The archive gives every
 /// saved spot its seq, so only saved spots are published (as news: the apps
 /// get the starting list from GET /v1/spots). The alerts run side by side and
@@ -19,9 +20,6 @@ public sealed partial class IngestSpots(
     TimeProvider time,
     ILogger<IngestSpots> logger) : IDisposable
 {
-    /// <summary>Older spots (a telnet backlog after a reconnect) and QRT spots (B29) never trigger an alert.</summary>
-    public static readonly TimeSpan AlertFreshness = TimeSpan.FromMinutes(15);
-
     private readonly SemaphoreSlim gate = new(1, 1);
 
     /// <summary>Reloads the dedup from the archive, so a restart neither republishes nor re-alerts.</summary>
@@ -55,16 +53,16 @@ public sealed partial class IngestSpots(
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var results = batch.Spots.Select(SpotEnrichment.Enrich).Select(deduplicator.Accept).ToArray();
-            var changed = results
+            var accepted = batch.Spots.Select(SpotEnrichment.Enrich).Select(s => (Incoming: s, Result: deduplicator.Accept(s))).ToArray();
+            var changed = accepted
+                .Select(a => a.Result)
                 .Where(r => r.Outcome != DedupOutcome.Unchanged)
                 .GroupBy(r => (r.Spot.Program, r.Spot.SpotKey))
                 .Select(g => g.Last().Spot)
                 .ToArray();
-            var fresh = results.Where(r => r.Outcome == DedupOutcome.New).Select(r => r.Spot).ToArray();
 
             var publishing = changed.Length > 0 ? SaveAndPublishAsync(changed, cancellationToken) : Task.CompletedTask;
-            var alertable = fresh.Where(s => !s.Qrt && time.GetUtcNow() - s.SpotTime <= AlertFreshness).ToArray();
+            var alertable = AlertableSpots.Of(accepted, time.GetUtcNow());
             var alerting = alertable.Length > 0 ? RunAsync("alerts", () => alerts.NotifyAsync(alertable, cancellationToken)) : Task.CompletedTask;
 
             await Task.WhenAll(publishing, alerting).ConfigureAwait(false);

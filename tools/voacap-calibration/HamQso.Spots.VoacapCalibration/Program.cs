@@ -196,7 +196,8 @@ internal sealed record Args(
 /// <summary>The RBN history, the node list and NOAA's SSN, downloaded once into the cache folder (outside the repo).</summary>
 internal static class Download
 {
-    private const long MaxCsvBytes = 200L * 1024 * 1024;
+    // A contest weekend is several times a normal day (20240218, ARRL DX CW: over 200 MB).
+    private const long MaxCsvBytes = 1024L * 1024 * 1024;
 
     public static async Task DayAsync(HttpClient http, string cache, string day)
     {
@@ -221,7 +222,7 @@ internal static class Download
         return await File.ReadAllTextAsync(path);
     }
 
-    /// <summary>The spots of a day, read from the zip without extracting it: one entry named &lt;day&gt;.csv, at most 200 MB.</summary>
+    /// <summary>The spots of a day, read from the zip without extracting it: one entry named &lt;day&gt;.csv, at most 1 GB.</summary>
     public static IReadOnlyList<HistorySpot> ReadDay(string cache, string day)
     {
         using var zip = ZipFile.OpenRead(Path.Combine(cache, "history", $"{day}.zip"));

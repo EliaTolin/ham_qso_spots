@@ -33,6 +33,8 @@ ap.add_argument("--final", required=True)
 ap.add_argument("--seasons", default="")
 ap.add_argument("--chosen", type=float, required=True)
 ap.add_argument("--bands", default=",".join(BANDS))
+ap.add_argument("--typical", action="store_true",
+                help="decision 29: margin on the typical expected, k_b x expected, k_b = median heard/expected of the calibration tests with at least 3 expected")
 ap.add_argument("--summer", action="store_true", help="add a May-August term to the recalibration (sporadic E is not in VOACAP)")
 ap.add_argument("--recalibrate", action="store_true",
                 help="correct VOACAP's probability with a logistic curve per band (logit p, day/night) fitted on the calibration days only")
@@ -95,17 +97,23 @@ def apply(w, rows):
 SEASON = {1: "winter", 2: "winter", 12: "winter", 3: "spring", 4: "spring", 5: "spring", 6: "summer", 7: "summer", 8: "summer", 9: "autumn", 10: "autumn", 11: "autumn"}
 
 
-def margins_of(tests, rows, by_test, band):
-    """The app's margin of every test of the band, from the (possibly corrected) probabilities."""
+def margins_of(tests, rows, by_test, band, k=1.0):
+    """The app's margin of every test of the band, from the (possibly corrected) probabilities, on k x expected (at least 3)."""
     out = []
     for tid, idx in by_test.items():
         if tests[tid]["band"] != band:
             continue
-        expected = sum(rows[i][2] for i in idx)
+        expected = k * sum(rows[i][2] for i in idx)
         heard = sum(rows[i][3] for i in idx)
         if expected >= 3:
             out.append((heard - expected) / expected)
     return sorted(out)
+
+
+def typical_factor(tests, rows, by_test, band):
+    """k_b: median of heard / expected over the tests with at least 3 expected."""
+    ratios = [m + 1 for m in margins_of(tests, rows, by_test, band)]
+    return statistics.median(ratios) if ratios else 1.0
 
 
 def brier(rows):
@@ -155,7 +163,8 @@ for band in bands:
     bm, bc = brier(f), statistics.fmean((clim.get((b, d), 0) - h) ** 2 for b, d, _, h, _ in f)
     bss = 1 - bm / bc if bc > 0 else float("nan")
     gap = bm - brier(c)
-    margins = margins_of(fin_tests, fin, fin_by, band)
+    k = typical_factor(cal_tests, cal, cal_by, band) if args.typical else 1.0
+    margins = margins_of(fin_tests, fin, fin_by, band, k)
     med = statistics.median(margins) if margins else float("nan")
     best = []
     for name, grid in seasons:
@@ -181,7 +190,7 @@ for band in bands:
         rel_rows.append(f"{int(lo*100)}-{int(min(hi,1)*100)}%: n {len(x)}, p {mp:.2f}, obs {obs:.2f}{'' if ok else ' ✗'}")
     checks = [bss > 0, gap <= 0.02, abs(med) <= 0.25, spread <= 5, len(margins) >= 30, rel_ok]
     above = {t: sum(m >= t for m in margins) / len(margins) if margins else float("nan") for t in (0.15, 0.25, 0.50)}
-    print(f"| {band} | {bss:+.3f} {'✓' if checks[0] else '✗'} | {brier(c):.3f} → {bm:.3f} ({gap:+.3f}) {'✓' if checks[1] else '✗'} "
+    print(f"| {band}{f' (k {k:.2f})' if args.typical else ''} | {bss:+.3f} {'✓' if checks[0] else '✗'} | {brier(c):.3f} → {bm:.3f} ({gap:+.3f}) {'✓' if checks[1] else '✗'} "
           f"| {med:+.0%} {'✓' if checks[2] else '✗'} | {', '.join(f'{n} {v:g}' if v is not None else f'{n} —' for n, v, _ in best)} (±{spread:g}) {'✓' if checks[3] else '✗'} "
           f"| {len(margins)} {'✓' if checks[4] else '✗'} | {'✓' if checks[5] else '✗'} | {'**pass**' if all(checks) else 'fail'} |")
     check4b = bool(season_bias) and all(abs(x) <= 0.25 for x in season_bias.values())

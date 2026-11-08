@@ -196,3 +196,39 @@ public class ScoreTests
         Assert.Equal("b", Score.Best([("a", S(0.12, double.NaN)), ("b", S(0.10, double.NaN))]).Settings);
     }
 }
+
+public class SsnByDayTests
+{
+    [Theory]
+    [InlineData(63.7, 0)]
+    [InlineData(150, 105.05)]
+    [InlineData(60, 0)]
+    public void The_SSN_of_a_daily_flux_with_the_CCIR_relation(double f107, double ssn) =>
+        Assert.Equal(ssn, SsnByDay.FromF107(f107), 2);
+
+    [Fact]
+    public void The_observed_F107_of_each_day_of_the_GFZ_file_never_its_SILSO_column()
+    {
+        const string file = """
+            # LICENSE: CC BY 4.0, except for the sunspot numbers
+            #YYY MM DD  days  days_m  Bsr dB    Kp1    Kp2    Kp3    Kp4    Kp5    Kp6    Kp7    Kp8  ap1  ap2  ap3  ap4  ap5  ap6  ap7  ap8    Ap  SN F10.7obs F10.7adj D
+            2026 11 05 34642 34642.5 2635 11  0.667  1.333  1.000  1.000  0.667  0.667  2.333  2.667    3    5    4    4    3    3    9   12     5  99    150.0    121.6 0
+            2026 11 06 34643 34643.5 2635 12  2.333  0.667  2.333  2.000  2.000  2.000  2.333  3.000    9    3    9    7    7    7    9   15     8 106     -1.0    123.1 0
+            """;
+
+        var days = SsnByDay.FromGfz(file);
+
+        Assert.Equal(105.05, days[new DateOnly(2026, 11, 5)], 2);
+        Assert.False(days.ContainsKey(new DateOnly(2026, 11, 6)));
+    }
+
+    [Fact]
+    public void A_day_without_a_flux_takes_the_nearest_day_within_3_days_else_none()
+    {
+        var days = new Dictionary<DateOnly, double> { [new DateOnly(2025, 2, 11)] = 100, [new DateOnly(2025, 2, 14)] = 120 };
+
+        Assert.Equal(100, SsnByDay.On(days, new DateOnly(2025, 2, 12)));
+        Assert.Equal(120, SsnByDay.On(days, new DateOnly(2025, 2, 13)));  // the 14th is 1 day away, the 11th 2
+        Assert.Null(SsnByDay.On(days, new DateOnly(2025, 2, 20)));
+    }
+}

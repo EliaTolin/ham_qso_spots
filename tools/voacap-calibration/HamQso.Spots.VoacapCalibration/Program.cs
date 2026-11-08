@@ -18,9 +18,16 @@ foreach (var day in options.Days) await Download.DayAsync(http, cache, day);
 var catalog = new RbnNodeCatalog();
 catalog.Set(RbnNodeListParser.Parse(await Download.NodesAsync(http, cache), DateTimeOffset.UtcNow).Nodes, DateTimeOffset.UtcNow);
 var locate = new LocateSkimmer(catalog);
-var ssn = SsnByMonth.From(
+var ssnMonthly = SsnByMonth.From(
     await Download.CachedAsync(http, cache, "observed-solar-cycle-indices.json", "https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json"),
     await Download.CachedAsync(http, cache, "predicted-solar-cycle.json", "https://services.swpc.noaa.gov/json/solar-cycle/predicted-solar-cycle.json"));
+// --ssn daily: the SSN of the day from the observed F10.7 (SsnByDay); default the month's (SsnByMonth).
+var ssnDaily = options.DailySsn
+    ? SsnByDay.FromGfz(await Download.CachedAsync(http, cache, "Kp_ap_Ap_SN_F107_since_1932.txt", "https://kp.gfz.de/app/files/Kp_ap_Ap_SN_F107_since_1932.txt"))
+    : null;
+double SsnOf(DateTimeOffset at) => ssnDaily is not null
+    ? SsnByDay.On(ssnDaily, DateOnly.FromDateTime(at.UtcDateTime)) ?? throw new InvalidDataException($"no F10.7 within 3 days of {at:yyyy-MM-dd}")
+    : ssnMonthly[(at.Year, at.Month)];
 
 var events = new List<CalibrationEvent>();
 foreach (var day in options.Days)
@@ -43,7 +50,7 @@ foreach (var combo in combos)
     await Parallel.ForEachAsync(Enumerable.Range(0, sample.Count), new ParallelOptions { MaxDegreeOfParallelism = options.Parallel }, async (i, ct) =>
     {
         var e = sample[i];
-        results[i] = await voacap.PredictAsync(e, ssn[(e.Start.Year, e.Start.Month)], combo.Noise, combo.Snr, ct);
+        results[i] = await voacap.PredictAsync(e, SsnOf(e.Start), combo.Noise, combo.Snr, ct);
     });
     rels[combo] = results;
     Console.Write('.');
@@ -98,7 +105,7 @@ for (var i = 0; i < sample.Count; i++)
     var e = sample[i];
     var row = TestRow.Of(e, chosenRels[i]);
     export.AppendLine(Csv.Line(i + 1, e.Start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), e.Start.Hour, e.Start.Month, e.Band,
-        CalibrationEvents.IsDay(e.Start, e.StationPosition.Lon) ? "day" : "night", Math.Round(ssn[(e.Start.Year, e.Start.Month)], 1),
+        CalibrationEvents.IsDay(e.Start, e.StationPosition.Lon) ? "day" : "night", Math.Round(SsnOf(e.Start), 1),
         row.Listening, Math.Round(row.ExpectedTheory, 2), row.Heard, row.Margin is { } m ? Math.Round(m, 3) : null, Math.Round(row.FarthestKm), row.Continents, row.Surprises));
 }
 await File.WriteAllTextAsync(options.ExportPath, export.ToString());
@@ -113,7 +120,7 @@ var busiest = events.GroupBy(e => e.Station).OrderByDescending(g => g.Count()).T
 var history = busiest.SelectMany(g => g).OrderBy(e => e.Station, StringComparer.Ordinal).ThenBy(e => e.Start).ToArray();
 var historyRels = new IReadOnlyDictionary<string, double>[history.Length];
 await Parallel.ForEachAsync(Enumerable.Range(0, history.Length), new ParallelOptions { MaxDegreeOfParallelism = options.Parallel }, async (i, ct) =>
-    historyRels[i] = await voacap.PredictAsync(history[i], ssn[(history[i].Start.Year, history[i].Start.Month)], For(history[i]).Noise, For(history[i]).Snr, ct));
+    historyRels[i] = await voacap.PredictAsync(history[i], SsnOf(history[i].Start), For(history[i]).Noise, For(history[i]).Snr, ct));
 await File.WriteAllTextAsync(historyPath, SkimmerRows.Csv(history, historyRels, 100_001));
 Console.WriteLine($"Grid: {gridFile}\nTests: {options.ExportPath}\nSkimmers: {skimmersPath}\nHistory of {busiest.Length} stations ({string.Join(", ", busiest.Select(g => $"{g.Key} {g.Count()}"))}): {historyPath}");
 
@@ -149,7 +156,8 @@ internal sealed record Args(
     IReadOnlyList<string> Days, IReadOnlyList<string> Bands, int PerStratum, int Seed, int Parallel,
     IReadOnlyList<double> Noise, IReadOnlyList<double> Snr, (double Noise, double Snr)? Export, string ExportPath, Uri VoacapUrl, string Token, int HistoryStations,
     IReadOnlyDictionary<string, (double Noise, double Snr)> ExportBand,
-    IReadOnlyDictionary<string, (double Noise, double Snr)> ExportDaylight)
+    IReadOnlyDictionary<string, (double Noise, double Snr)> ExportDaylight,
+    bool DailySsn)
 {
     private static Dictionary<string, (double Noise, double Snr)> Pairs(string? text) =>
         (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(b => b.Split('=', '/')).ToDictionary(
@@ -180,7 +188,8 @@ internal sealed record Args(
             int.Parse(Get("--history-stations") ?? "8", CultureInfo.InvariantCulture),
             // --export-band 40m=-135/54,15m=-135/39 and --export-daylight day=-135/41,night=-135/47; each pair must be in the grid.
             Pairs(Get("--export-band")),
-            Pairs(Get("--export-daylight")));
+            Pairs(Get("--export-daylight")),
+            Get("--ssn") == "daily");
     }
 }
 

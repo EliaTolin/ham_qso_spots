@@ -33,6 +33,8 @@ ap.add_argument("--final", required=True)
 ap.add_argument("--seasons", default="")
 ap.add_argument("--chosen", type=float, required=True)
 ap.add_argument("--bands", default=",".join(BANDS))
+ap.add_argument("--fixture", help="write the shared fixture of the approved model (decision 30) to this path, then stop")
+ap.add_argument("--fixture-bands", default="40m,30m")
 ap.add_argument("--typical", action="store_true",
                 help="decision 29: margin on the typical expected, k_b x expected, k_b = median heard/expected of the calibration tests with at least 3 expected")
 ap.add_argument("--summer", action="store_true", help="add a May-August term to the recalibration (sporadic E is not in VOACAP)")
@@ -131,8 +133,66 @@ def best_of(grid_rows):
     return None
 
 
+def ssn_of_f107(f107):
+    """The CCIR relation F = 63.7 + 0.728 R + 0.00089 R^2, solved for R (0 at or below 63.7): SsnByDay.FromF107 of the tool."""
+    if f107 <= 63.7:
+        return 0.0
+    a, b = 0.00089, 0.728
+    return (-b + math.sqrt(b * b + 4 * a * (f107 - 63.7))) / (2 * a)
+
+
+# Same values as the tool's tests (SsnByDayTests): one formula, checked in both places.
+assert ssn_of_f107(63.7) == 0 and abs(ssn_of_f107(150) - 105.05) < 0.005
+
+
+def write_fixture(path, weights, factors):
+    import json
+    cases = []
+    for band in factors:
+        w = weights[band]
+        for p, night, summer in [(0.0, False, False), (0.05, False, False), (0.3, False, False), (0.5, True, False), (0.83, False, True), (0.95, True, True)]:
+            row = (band, "night" if night else "day", p, 0, 6 if summer else 1)
+            cases.append({"band": band, "p_voacap": p, "night": night, "summer": summer, "p_corrected": round(apply(w, [row])[0][2], 6)})
+    typical = [{"band": b, "expected": e, "typical_expected": round(factors[b] * e, 6), "has_margin": factors[b] * e >= 3}
+               for b in factors for e in (2.0, 4.0, 10.0)]
+    ssn = [{"f107_observed_sfu": f, "ssn": round(ssn_of_f107(f), 4)} for f in (60.0, 63.7, 70.0, 100.0, 150.0, 200.0, 250.0)]
+    doc = {
+        "schema": 1,
+        "model": "F71 decision 30: VOACAP corrected per band and typical forecast (phase 5, agent A)",
+        "generated_by": "ham_qso_spots/tools/voacap-calibration/analysis/stability.py --fixture",
+        "voacap": {"noise_dbw": -135, "required_snr_dbhz": 42, "min_takeoff_deg": 3, "method": 30,
+                   "reference_station": {"antenna": "dipole", "height_m": 10, "power_w": 100},
+                   "receive_antenna": {"model": "isotropic", "gain_dbi": 0},
+                   "p_voacap": "the 'rel' of the reference station (theory) for each listening skimmer"},
+        "ssn": {
+            "source": "observed 10.7 cm solar flux (F10.7obs, local noon at Penticton), not the adjusted one; NOAA SWPC gives it daily",
+            "day": "the UTC day of the start of the test; a day without a value takes the nearest day with one within 3 days (the earlier on a tie), else no forecast",
+            "formula": "CCIR: F = 63.7 + 0.728 R + 0.00089 R^2, so R = (-0.728 + sqrt(0.728^2 + 4 * 0.00089 * (F - 63.7))) / (2 * 0.00089); R = 0 when F <= 63.7; not rounded",
+        },
+        "night": "night = not day; day = local SOLAR time of the transmitting station (the user, its longitude) from 06:00 inclusive to 18:00 exclusive, local solar hour = (UTC hours of the start of the test + longitude / 15) modulo 24",
+        "summer": "summer = the UTC month of the start of the test is May, June, July or August, in both hemispheres (the RBN data are almost all northern)",
+        "correction": "p_corrected = 1 / (1 + exp(-z)), z = a + b * logit(p) + night_coef * (night ? 1 : 0) + summer_coef * (summer ? 1 : 0), logit(p) = ln(q / (1 - q)) with q = p clamped to [0.001, 0.999]; z clamped to [-30, 30]",
+        "typical": "expected = sum of p_corrected over the listening skimmers; typical expected = k * expected; margin = (heard - typical) / typical, only when typical >= 3",
+        "bands": {b: {"a": weights[b][0], "b": weights[b][1], "night": weights[b][2], "summer": weights[b][3], "k": factors[b]} for b in factors},
+        "other_bands": "no comparison with the forecast (decision 30): 160, 80, 20, 17, 15, 12, 10 m",
+        "cases": {"correction": cases, "typical": typical, "ssn_from_f107": ssn},
+    }
+    with open(path, "w") as f:
+        json.dump(doc, f, indent=2)
+        f.write("\n")
+    print(f"fixture: {path}")
+
+
 cal_tests, cal, cal_by = load(args.cal)
 fin_tests, fin, fin_by = load(args.final)
+if args.fixture:
+    if not (args.recalibrate and args.summer):
+        raise SystemExit("--fixture needs --recalibrate --summer (the approved model)")
+    fb = args.fixture_bands.split(",")
+    weights = {b: fit([r for r in cal if r[0] == b]) for b in fb}
+    corrected = [apply(weights[r[0]], [r])[0] if r[0] in weights else r for r in cal]
+    write_fixture(args.fixture, weights, {b: typical_factor(cal_tests, corrected, cal_by, b) for b in fb})
+    raise SystemExit(0)
 if args.recalibrate:
     weights = {b: fit([r for r in cal if r[0] == b]) for b in bands}
     print("recalibration (fitted on the calibration days): " + "; ".join(f"{b} " + " ".join(f"{x:+.2f}" for x in w) for b, w in weights.items()))

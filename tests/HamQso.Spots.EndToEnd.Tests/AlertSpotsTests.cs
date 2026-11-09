@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using HamQso.Spots.Application.Health;
+using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure.Alerts;
 using Microsoft.Extensions.Options;
@@ -43,6 +44,8 @@ public sealed class AlertSpotsTests : IAsyncLifetime
         Comment = "CW e2e test",
     });
 
+    private static AlertSpot New(Spot spot) => new(spot, Respot: false);
+
     [Fact]
     public async Task A_server_spot_on_the_alerted_callsign_becomes_an_alert_event_and_no_other_spot_does()
     {
@@ -51,7 +54,7 @@ public sealed class AlertSpotsTests : IAsyncLifetime
         using var http = new HttpClient();
         var notifier = new SupabaseAlertNotifier(Options.Create(new SupabaseOptions { Url = E2eSettings.Supabase, SecretKey = E2eSettings.SecretKey }), http, NullSourceHealth.Instance);
 
-        await notifier.NotifyAsync([Dx(AlertCall, "hit"), Dx(OtherCall, "miss")], ct);
+        await notifier.NotifyAsync([New(Dx(AlertCall, "hit")), New(Dx(OtherCall, "miss"))], ct);
 
         var events = await user.AlertEventsAsync(ct);
         var e = Assert.Single(events);
@@ -69,8 +72,8 @@ public sealed class AlertSpotsTests : IAsyncLifetime
         using var http = new HttpClient();
         var notifier = new SupabaseAlertNotifier(Options.Create(new SupabaseOptions { Url = E2eSettings.Supabase, SecretKey = E2eSettings.SecretKey }), http, NullSourceHealth.Instance);
 
-        await notifier.NotifyAsync([Dx(AlertCall, "twice")], ct);
-        await notifier.NotifyAsync([Dx(AlertCall, "twice")], ct);
+        await notifier.NotifyAsync([New(Dx(AlertCall, "twice"))], ct);
+        await notifier.NotifyAsync([New(Dx(AlertCall, "twice"))], ct);
 
         Assert.Single(await user.AlertEventsAsync(ct));
     }

@@ -92,14 +92,16 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
         Assert.Empty(alerts.Sent);
 
         // 3. 10:20 a hunter respots him on 7.076 (POTA gives the spot a new id): the same row is updated,
-        //    the apps get it again with a new seq; no new alert for the same activation.
+        //    the apps get it again with a new seq; no new alert for the same activation, only a respot
+        //    with the hunter as spotter (F101: IU4ABC hears that IK5PWJ spotted him).
         var respot = PotaRow("1002", 7076, Ten.AddMinutes(20), "TNX 599", "IK5PWJ");
         await PollPota(Ten.AddMinutes(20).AddSeconds(30), respot);
         var update = Assert.Single(broker.Sent("spots/pota"));
         Assert.Equal(("IU4ABC_I-0123_40m", 7076.0, "TNX 599"), (update.SpotKey, update.FrequencyKhz, update.Comment));
         Assert.True(update.Seq > first.Seq);
         Assert.Equal(2, update.SpotCount);
-        Assert.Empty(alerts.Sent);
+        var respotted = Assert.Single(alerts.Sent);
+        Assert.Equal((true, "IK5PWJ", "IU4ABC_I-0123_40m"), (respotted.Respot, respotted.Spot.Spotters.Single(), respotted.Spot.SpotKey));
 
         // 4. 10:45 the feed still shows the 10:20 spot: nothing goes out.
         await PollPota(Ten.AddMinutes(45), respot);
@@ -225,7 +227,7 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
-    public async Task A_DX_station_heard_by_three_sources_is_one_spot_that_grows_and_is_alerted_once()
+    public async Task A_DX_station_heard_by_three_sources_is_one_spot_that_grows_and_is_alerted_once_plus_a_respot_per_new_spotter()
     {
         Spot Dx(string feed, string spotter, int second) => new()
         {
@@ -245,7 +247,8 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
             await server.HandleAsync(new SpotBatch(feed, [Dx(feed, spotter, at)]), TestContext.Current.CancellationToken);
         }
 
-        Assert.Single(alerts.All);
+        // One alert for the station; F101: the two other spotters go as respots.
+        Assert.Equal([("EA4RCH-#", false), ("DL1HBT", true), ("OH8X", true)], alerts.All.Select(a => (a.Spot.Spotters.Single(), a.Respot)));
         var row = Assert.Single((await new GetSpots(store).ExecuteAsync(new SpotFilter(SpotProgram.Dx, [], []), null, null, TestContext.Current.CancellationToken)).Spots);
         Assert.Equal(["DXFun", "HamQTH", "DXSummit"], row.Feeds);
         Assert.Equal(["EA4RCH-#", "DL1HBT", "OH8X"], row.Spotters);
@@ -277,15 +280,15 @@ public sealed class ActivationStoryTests : IAsyncLifetime, IDisposable
 
     private sealed class Alerts : IAlertNotifier
     {
-        private readonly List<Spot> sent = [];
+        private readonly List<AlertSpot> sent = [];
 
-        public List<Spot> All { get; } = [];
+        public List<AlertSpot> All { get; } = [];
 
-        public IReadOnlyList<Spot> Sent => sent;
+        public IReadOnlyList<AlertSpot> Sent => sent;
 
         public void Clear() => sent.Clear();
 
-        public Task NotifyAsync(IReadOnlyList<Spot> spots, CancellationToken cancellationToken)
+        public Task NotifyAsync(IReadOnlyList<AlertSpot> spots, CancellationToken cancellationToken)
         {
             sent.AddRange(spots);
             All.AddRange(spots);

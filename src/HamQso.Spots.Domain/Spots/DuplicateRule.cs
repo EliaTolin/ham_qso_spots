@@ -66,4 +66,16 @@ public static class DuplicateRule
             Eqsl = first.Eqsl ?? next.Eqsl,
         };
     }
+
+    /// <summary>
+    /// The spotters a merge brought that were not in the spot before (F101: each is a
+    /// person who spotted the station again). DX: the ones added to the union; xOTA:
+    /// the ones of the newer spot that replaced it. Kept exactly as received.
+    /// </summary>
+    public static IReadOnlyList<string> NewSpotters(Spot before, Spot merged)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(merged);
+        return merged.Spotters.Except(before.Spotters, StringComparer.Ordinal).ToArray();
+    }
 }

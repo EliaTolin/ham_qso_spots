@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using HamQso.Spots.Application.Health;
+using HamQso.Spots.Application.Ports;
 using HamQso.Spots.Domain.Spots;
 using HamQso.Spots.Infrastructure.Alerts;
 using Microsoft.Extensions.Options;
@@ -31,7 +32,7 @@ public class SupabaseAlertNotifierTests
         var notifier = new SupabaseAlertNotifier(
             Options.Create(new SupabaseOptions { Url = new Uri("https://example.supabase.co"), SecretKey = "sb_secret_test" }), http, NullSourceHealth.Instance);
 
-        await notifier.NotifyAsync([Dx("CW 12 dB 25 WPM CQ")], TestContext.Current.CancellationToken);
+        await notifier.NotifyAsync([new AlertSpot(Dx("CW 12 dB 25 WPM CQ"), Respot: false)], TestContext.Current.CancellationToken);
 
         var request = Assert.Single(handler.Requests);
         Assert.Equal("https://example.supabase.co/functions/v1/alert_spots", request.Url);
@@ -43,6 +44,23 @@ public class SupabaseAlertNotifierTests
         Assert.Equal("JA1ABC", spot.GetProperty("callsign").GetString());
         Assert.Equal(14025.0, spot.GetProperty("frequency_khz").GetDouble());
         Assert.Equal("2026-10-27T12:00:00.000Z", spot.GetProperty("spot_time").GetString());
+    }
+
+    [Fact]
+    public async Task F101_a_new_spot_goes_with_respot_false_and_a_respot_with_respot_true_and_its_spotter()
+    {
+        var handler = new RecordingHandler();
+        using var http = new HttpClient(handler);
+        var notifier = new SupabaseAlertNotifier(
+            Options.Create(new SupabaseOptions { Url = new Uri("https://example.supabase.co"), SecretKey = "sb_secret_test" }), http, NullSourceHealth.Instance);
+        var spot = Dx("CW 12 dB 25 WPM CQ");
+
+        await notifier.NotifyAsync([new AlertSpot(spot, Respot: false), new AlertSpot(spot with { Spotters = ["IK2ABC"] }, Respot: true)], TestContext.Current.CancellationToken);
+
+        using var body = JsonDocument.Parse(Assert.Single(handler.Requests).Body);
+        var rows = body.RootElement.GetProperty("spots").EnumerateArray()
+            .Select(r => (r.GetProperty("spotter").GetString(), r.GetProperty("respot").GetBoolean(), r.GetProperty("spot_key").GetString()));
+        Assert.Equal([("EA4RCH-#", false, spot.SpotKey), ("IK2ABC", true, spot.SpotKey)], rows);
     }
 
     [Fact]

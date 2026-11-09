@@ -224,6 +224,6 @@ public sealed class WorkerTests : IDisposable
 
     private sealed class NoAlerts : IAlertNotifier
     {
-        public Task NotifyAsync(IReadOnlyList<Spot> spots, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task NotifyAsync(IReadOnlyList<AlertSpot> spots, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

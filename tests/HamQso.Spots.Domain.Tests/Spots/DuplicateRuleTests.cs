@@ -104,4 +104,25 @@ public class DuplicateRuleTests
         Assert.False(DuplicateRule.IsDuplicate(Pota("1"), Pota("2", khz: 14074)));
         Assert.False(DuplicateRule.IsDuplicate(Pota("1"), Pota("2", reference: "US-0001")));
     }
+
+    [Fact]
+    public void F101_the_new_spotters_of_a_DX_merge_are_the_ones_it_added()
+    {
+        var first = Dx("DXFun", spotter: "EA4RCH-#");
+        var merged = DuplicateRule.Merge(first, Dx("HamQTH", minutes: 2, spotter: "IK2ABC"));
+
+        Assert.Equal(["IK2ABC"], DuplicateRule.NewSpotters(first, merged));
+        Assert.Empty(DuplicateRule.NewSpotters(merged, DuplicateRule.Merge(merged, Dx("DXSummit", minutes: 3, spotter: "IK2ABC"))));
+    }
+
+    [Fact]
+    public void F101_the_new_spotter_of_an_xOTA_respot_is_the_one_of_the_newer_spot_when_different()
+    {
+        var first = Pota("1") with { Spotters = ["K8RLE"] };
+        var byHunter = DuplicateRule.Merge(first, Pota("2", minutes: 5) with { Spotters = ["IK5PWJ"] });
+        var bySameHunter = DuplicateRule.Merge(byHunter, Pota("3", minutes: 9) with { Spotters = ["IK5PWJ"] });
+
+        Assert.Equal(["IK5PWJ"], DuplicateRule.NewSpotters(first, byHunter));
+        Assert.Empty(DuplicateRule.NewSpotters(byHunter, bySameHunter));
+    }
 }

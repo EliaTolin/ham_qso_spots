@@ -36,16 +36,19 @@ public sealed class IngestSpotsTests : IDisposable
         Comment = comment,
     };
 
-    private static Spot Pota(string id, string call = "K8RLE", double khz = 7074) => new()
+    private static Spot Pota(string id, string call = "K8RLE", double khz = 7074, string? spotter = null, int minutesAgo = 0, string? comment = null, bool qrt = false) => new()
     {
         Program = SpotProgram.Pota,
         SpotKey = id,
         Callsign = call,
         FrequencyKhz = khz,
-        SpotTime = Now,
+        SpotTime = Now.AddMinutes(-minutesAgo),
         Feeds = ["POTA"],
+        Spotters = spotter is null ? [] : [spotter],
         Mode = "FT8",
         Reference = "US-6701",
+        Comment = comment,
+        Qrt = qrt,
     };
 
     private Task Receive(params Spot[] spots) => ingest.HandleAsync(new SpotBatch(spots[0].Feeds[0], spots), CancellationToken.None);
@@ -58,7 +61,7 @@ public sealed class IngestSpotsTests : IDisposable
 
         var saved = store.Saved.Last(s => s.Callsign == "JA1ABC");
         Assert.Equal(["DXFun", "HamQTH"], saved.Feeds);
-        Assert.Single(alerts.Notified, s => s.Callsign == "JA1ABC");
+        Assert.Single(alerts.Notified, a => a.Spot.Callsign == "JA1ABC" && !a.Respot);
     }
 
     [Fact]
@@ -143,6 +146,82 @@ public sealed class IngestSpotsTests : IDisposable
         await handling;
     }
 
+    // F101 "Quando ti spottano": one alert row per person who spots you, also when the spot is a duplicate.
+
+    [Fact]
+    public async Task F101_IK2ABC_spots_IU4VRB_on_14074_DL1XX_four_minutes_later_the_alerts_get_a_second_row_with_spotter_DL1XX_and_respot_true()
+    {
+        await Receive(Dx("IU4VRB", 14074, "DXFun", "FT8 -10", minutesAgo: 4, spotter: "IK2ABC"));
+        await Receive(Dx("IU4VRB", 14074.2, "HamQTH", "FT8 -05 tnx", spotter: "DL1XX"));
+
+        Assert.Equal([("IK2ABC", false), ("DL1XX", true)], alerts.Notified.Select(a => (a.Spot.Spotters.Single(), a.Respot)));
+        var first = alerts.Notified[0].Spot;
+        var respot = alerts.Notified[1].Spot;
+        Assert.Equal((first.SpotKey, "IU4VRB", Now, "FT8 -05 tnx"), (respot.SpotKey, respot.Callsign, respot.SpotTime, respot.Comment));
+    }
+
+    [Fact]
+    public async Task F101_an_RBN_skimmer_spots_first_IK2ABC_right_after_IK2ABC_is_sent_as_a_respot()
+    {
+        await Receive(Dx("IU4VRB", 14025, "DXFun", "CW 12 dB 25 WPM CQ", minutesAgo: 1, spotter: "EA4RCH-#"));
+        await Receive(Dx("IU4VRB", 14025, "DXSummit", "", spotter: "IK2ABC"));
+
+        Assert.Equal([("EA4RCH-#", false), ("IK2ABC", true)], alerts.Notified.Select(a => (a.Spot.Spotters.Single(), a.Respot)));
+    }
+
+    [Fact]
+    public async Task F101_a_POTA_hunter_respots_an_activation_already_seen_it_is_sent_as_a_respot()
+    {
+        await Receive(Pota("1001", spotter: "K8RLE", minutesAgo: 10, comment: "CQ POTA"));
+        await Receive(Pota("1002", spotter: "IK5PWJ", comment: "TNX 599"));
+
+        Assert.Equal([("K8RLE", false), ("IK5PWJ", true)], alerts.Notified.Select(a => (a.Spot.Spotters.Single(), a.Respot)));
+        var respot = alerts.Notified[1].Spot;
+        Assert.Equal(("K8RLE_US-6701_40m", Now, "TNX 599"), (respot.SpotKey, respot.SpotTime, respot.Comment));
+    }
+
+    [Fact]
+    public async Task F101_the_same_spotter_again_sends_nothing_new()
+    {
+        await Receive(Dx("IU4VRB", 14074, "DXFun", minutesAgo: 2, spotter: "IK2ABC"));
+        await Receive(Dx("IU4VRB", 14074, "HamQTH", spotter: "IK2ABC"));
+        await Receive(Pota("1001", spotter: "IK5PWJ", minutesAgo: 10));
+        await Receive(Pota("1002", spotter: "IK5PWJ"));
+
+        Assert.Equal([("IK2ABC", false), ("IK5PWJ", false)], alerts.Notified.Select(a => (a.Spot.Spotters.Single(), a.Respot)));
+    }
+
+    [Fact]
+    public async Task F101_a_QRT_respot_is_not_sent()
+    {
+        await Receive(Pota("1001", spotter: "K8RLE", minutesAgo: 10));
+        await Receive(Pota("1002", spotter: "IK5PWJ", comment: "QRT", qrt: true));
+
+        Assert.Equal([false], alerts.Notified.Select(a => a.Respot));
+    }
+
+    [Fact]
+    public async Task F101_a_respot_from_a_telnet_backlog_is_not_sent()
+    {
+        await Receive(Dx("IU4VRB", 14074, "DXFun", minutesAgo: 1, spotter: "IK2ABC"));
+        await Receive(Dx("IU4VRB", 14074, "HamQTH", minutesAgo: 9, spotter: "DL1XX"));
+        await Receive(Dx("IU4VRB", 14074, "DXSummit", minutesAgo: 20, spotter: "OH8X"));
+
+        Assert.Equal([("IK2ABC", false), ("DL1XX", true)], alerts.Notified.Select(a => (a.Spot.Spotters.Single(), a.Respot)));
+    }
+
+    [Fact]
+    public async Task F101_new_spots_and_respots_of_a_batch_go_in_one_alerts_call()
+    {
+        await Receive(
+            Dx("IU4VRB", 14074, "DXFun", minutesAgo: 1, spotter: "IK2ABC"),
+            Dx("IU4VRB", 14074, "DXFun", spotter: "DL1XX"),
+            Dx("JA1ABC", 14025, "DXFun"));
+
+        var call = Assert.Single(alerts.Calls);
+        Assert.Equal([("IU4VRB", false), ("IU4VRB", true), ("JA1ABC", false)], call.Select(a => (a.Spot.Callsign, a.Respot)));
+    }
+
     private sealed class HangingPublisher : ISpotPublisher
     {
         private readonly TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -194,10 +273,13 @@ public sealed class IngestSpotsTests : IDisposable
 
     private sealed class FakeAlerts : IAlertNotifier
     {
-        public List<Spot> Notified { get; } = [];
+        public List<AlertSpot> Notified { get; } = [];
 
-        public Task NotifyAsync(IReadOnlyList<Spot> spots, CancellationToken cancellationToken)
+        public List<IReadOnlyList<AlertSpot>> Calls { get; } = [];
+
+        public Task NotifyAsync(IReadOnlyList<AlertSpot> spots, CancellationToken cancellationToken)
         {
+            Calls.Add(spots);
             Notified.AddRange(spots);
             return Task.CompletedTask;
         }

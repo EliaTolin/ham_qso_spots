@@ -65,10 +65,10 @@ One batch at a time, whatever the source:
    - DX: same callsign, same kHz rounded, at most 10 minutes apart → one spot. Feeds and spotters are joined; a mode reported by a source wins over a band plan guess.
    - xOTA: the same activation on the same band, at any distance in time: the key is `CALL_REFERENCE_BAND` (set by the enrichment). The newer spot wins (frequency, mode, time, comment); an older one changes nothing. Another band is another spot. Before this rule every respot had a new POTA id: the 200 latest POTA spots were 66 activations of the last 7 minutes.
    - Outcome: new, merged (something added or newer), or unchanged (dropped).
-   - Memory forgets DX spots after 20 minutes and xOTA spots after 6 hours (as long as Supabase keeps alerted keys in `processed_spots`, so a respot of the same activation never alerts again, and the same activation the next day does). At startup the last 6 hours are reloaded from the archive, so a restart neither republishes nor re-alerts.
+   - Memory forgets DX spots after 20 minutes and xOTA spots after 6 hours (as long as Supabase keeps alerted keys in `processed_spots`, so a respot of the same activation never triggers the normal alerts again, only the F101 respot rows, and the same activation the next day does). At startup the last 6 hours are reloaded from the archive, so a restart neither republishes nor re-alerts.
 3. **Save** new and merged spots in Postgres; every save gets the next `seq` (sequence `dx_spots_seq_counter`), also on update. The save only happens for a newer spot, or the same moment with something changed: an identical or older one (SOTA resends its last 50 spots, POTA the latest of every activation) changes nothing and gets no seq, so it is not published again.
 4. **Publish** the saved spots on their topics (`spots/dx/<band>/<mode>`, `spots/<program>`), only after the save: a spot without seq is never published.
-5. **Alert**: new spots at most 15 minutes old (a telnet backlog after a reconnection never alerts) go to Supabase.
+5. **Alert** (`AlertableSpots`): new spots at most 15 minutes old (a telnet backlog after a reconnection never alerts) and not QRT go to Supabase with `respot: false`. With them, in the same call, the **respots** (F101 "Quando ti spottano"): a merged duplicate that brought a spotter the spot did not have (DX: added to the union; xOTA: the newer spot with another spotter) sends one row per new spotter, with `respot: true`, the same `spot_key` as the stored spot, `spotter` = the new one (skimmers `-#` too, as received: Supabase drops them), `spot_time` and `comment` of the incoming spot. Same filters: not QRT, at most 15 minutes old. The same spotter again sends nothing.
 
 Steps 3-4 and step 5 run side by side: neither a slow archive nor a silent broker holds the alerts back (bug B21).
 
@@ -94,7 +94,7 @@ The full contract for clients is in [protocol.md](protocol.md).
 
 ## Alerts
 
-`SupabaseAlertNotifier` (official C# client `Supabase.Functions`) posts new spots to the edge function `alert_spots` of `ham_qso_supabase`, with the project secret key. The function (`@supabase/server`, `auth: 'secret:*'`) runs the same pipeline as the old `match_alerts` cron: US states (DX by FCC licence, POTA from the park location, SOTA from the summit), `match_alert_spots` (matching, anti-spam, history), FCM pushes, anonymous statistics. The cron `match-alerts` is disabled since 27/10/2026 and can be turned back on as a fallback ([operations.md](operations.md)).
+`SupabaseAlertNotifier` (official C# client `Supabase.Functions`) posts new spots and respots (F101) to the edge function `alert_spots` of `ham_qso_supabase`, with the project secret key. The function (`@supabase/server`, `auth: 'secret:*'`) runs the same pipeline as the old `match_alerts` cron: US states (DX by FCC licence, POTA from the park location, SOTA from the summit), `match_alert_spots` (matching, anti-spam, history), FCM pushes, anonymous statistics. The cron `match-alerts` is disabled since 27/10/2026 and can be turned back on as a fallback ([operations.md](operations.md)).
 
 ## Sending spots for the web app
 

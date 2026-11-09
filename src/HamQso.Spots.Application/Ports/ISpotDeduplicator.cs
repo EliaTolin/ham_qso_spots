@@ -24,4 +24,8 @@ public enum DedupOutcome
 }
 
 /// <summary><see cref="Spot"/> is the spot as now known (merged when a duplicate).</summary>
-public sealed record DedupResult(DedupOutcome Outcome, Spot Spot);
+public sealed record DedupResult(DedupOutcome Outcome, Spot Spot)
+{
+    /// <summary>Merged: the spotters the duplicate brought that the spot did not have (<see cref="DuplicateRule.NewSpotters"/>). Empty otherwise.</summary>
+    public IReadOnlyList<string> NewSpotters { get; init; } = [];
+}

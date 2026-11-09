@@ -7,11 +7,13 @@ namespace HamQso.Spots.Infrastructure.Alerts;
 /// <summary>
 /// A spot as the alerts edge function reads it: the NormalizedSpot of
 /// match_alerts (ham_qso_supabase/supabase/functions/match_alerts/types.ts)
-/// without us_states, which Supabase resolves, plus the POTA location.
+/// without us_states, which Supabase resolves, plus the POTA location and
+/// <c>respot</c> (F101: false for a new spot, true for a spot already seen that a
+/// new spotter spotted again).
 /// </summary>
 public static class AlertSpotPayload
 {
-    public static Dictionary<string, object?> From(Spot spot)
+    public static Dictionary<string, object?> From(Spot spot, bool respot = false)
     {
         ArgumentNullException.ThrowIfNull(spot);
         return new()
@@ -32,6 +34,7 @@ public static class AlertSpotPayload
             ["spotter"] = spot.Spotters.Count > 0 ? spot.Spotters[0] : null,
             ["comment"] = spot.Comment,
             ["spot_time"] = spot.SpotTime.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+            ["respot"] = respot,
         };
     }
 }

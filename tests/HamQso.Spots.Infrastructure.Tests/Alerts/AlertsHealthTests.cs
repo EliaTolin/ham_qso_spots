@@ -33,7 +33,7 @@ public class AlertsHealthTests
         var (notifier, health, http) = Notifier(HttpStatusCode.Unauthorized);
         using var _ = http;
 
-        await Assert.ThrowsAnyAsync<Exception>(() => notifier.NotifyAsync([Dx()], TestContext.Current.CancellationToken));
+        await Assert.ThrowsAnyAsync<Exception>(() => notifier.NotifyAsync([new AlertSpot(Dx(), Respot: false)], TestContext.Current.CancellationToken));
 
         Assert.Equal(["alerts"], health.Failures);
         Assert.False(health.LastOf("alerts"));
@@ -45,7 +45,7 @@ public class AlertsHealthTests
         var (notifier, health, http) = Notifier(HttpStatusCode.OK);
         using var _ = http;
 
-        await notifier.NotifyAsync([Dx()], TestContext.Current.CancellationToken);
+        await notifier.NotifyAsync([new AlertSpot(Dx(), Respot: false)], TestContext.Current.CancellationToken);
 
         Assert.True(health.LastOf("alerts"));
         Assert.Empty(health.Failures);

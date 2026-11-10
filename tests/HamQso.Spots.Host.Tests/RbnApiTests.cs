@@ -240,6 +240,21 @@ public sealed class RbnApiTests : IDisposable
         foreach (var s in open) s.Dispose();
     }
 
+    // F71 decision 25: the app offers 160 m at 1822 kHz.
+    [Fact]
+    public async Task A_v2_spot_on_160_m_has_its_band()
+    {
+        using var stream = await Open("/v1/rbn/IU2DEMO?v=2");
+        Assert.Equal(": connected", await stream.NextAsync());
+        await WaitForReaders(1);
+
+        host.Rbn.Push("DX de OK4YL-#:    1822.0  IU2DEMO        CW    12 dB  22 WPM  CQ      2215Z");
+
+        Assert.Equal("event: spot", await stream.NextEventAsync());
+        var data = JsonElement.Parse((await stream.NextEventAsync())["data: ".Length..]);
+        Assert.Equal(("160m", 1822.0), (data.GetProperty("band").GetString(), data.GetProperty("khz").GetDouble()));
+    }
+
     [Fact]
     public async Task The_v1_stream_is_unchanged_raw_lines_and_no_status_event()
     {

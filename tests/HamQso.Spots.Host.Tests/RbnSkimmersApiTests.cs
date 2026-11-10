@@ -115,4 +115,18 @@ public sealed class RbnSkimmersApiTests : IDisposable
         Assert.Equal("rate_limited", await Error(response));
         Assert.True(response.Headers.Contains("Retry-After"));
     }
+
+    // F71 decision 25: the app offers 160 m at 1822 kHz.
+    [Fact]
+    public async Task The_160_m_band_is_asked_like_the_others()
+    {
+        host.RbnActivity.Rows.Add(new ActivityMinute("OK4YL", "160m", At(14, 35), 2, At(14, 35, 1)));
+
+        using var response = await Get("?band=160m");
+        var answer = JsonElement.Parse(await response.Content.ReadAsStringAsync(Ct));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("160m", answer.GetProperty("band").GetString());
+        Assert.Equal(["OK4YL"], answer.GetProperty("skimmers").EnumerateArray().Select(s => s.GetProperty("call").GetString()));
+    }
 }

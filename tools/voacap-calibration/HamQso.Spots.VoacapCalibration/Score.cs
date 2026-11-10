@@ -9,7 +9,7 @@ public sealed record CalibrationOutcome(IReadOnlyList<(double Rel, bool Heard)> 
 /// (plan F71, section 4: (heard − expected) / expected, only with at least 3
 /// expected; above ≥ +5%, below ≤ −5%).
 /// </summary>
-public sealed record Score(int Events, double Expected, int Heard, double Brier, double MedianMargin, int Above, int Near, int Below)
+public sealed record Score(int Events, double Expected, int Heard, double Brier, double MedianMargin, int Above, int Near, int Below, double P10Margin, double P90Margin, int WithMargin)
 {
     public const double MinExpected = 3;
     public const double NearBand = 0.05;
@@ -32,10 +32,36 @@ public sealed record Score(int Events, double Expected, int Heard, double Brier,
             Median(margins),
             margins.Count(m => m >= NearBand),
             margins.Count(m => m > -NearBand && m < NearBand),
-            margins.Count(m => m <= -NearBand));
+            margins.Count(m => m <= -NearBand),
+            Percentile(margins, 0.1),
+            Percentile(margins, 0.9),
+            margins.Length);
     }
 
-    private static double Median(double[] sorted) => sorted.Length == 0 ? double.NaN
-        : sorted.Length % 2 == 1 ? sorted[sorted.Length / 2]
-        : (sorted[sorted.Length / 2 - 1] + sorted[sorted.Length / 2]) / 2;
+    /// <summary>
+    /// The best settings of a group: the lowest Brier among those whose median margin is within ±10%;
+    /// if none is, the median margin nearest 0; settings with no margin at all (NaN) only when no other has one.
+    /// </summary>
+    public static (T Settings, Score Score) Best<T>(IReadOnlyList<(T Settings, Score Score)> scored)
+    {
+        ArgumentNullException.ThrowIfNull(scored);
+        var withMargin = scored.Where(x => !double.IsNaN(x.Score.MedianMargin)).ToArray();
+        var near = withMargin.Where(x => Math.Abs(x.Score.MedianMargin) <= 0.10).ToArray();
+        return near.Length > 0 ? near.MinBy(x => x.Score.Brier)
+            : withMargin.Length > 0 ? withMargin.MinBy(x => Math.Abs(x.Score.MedianMargin))
+            : scored.MinBy(x => x.Score.Brier);
+    }
+
+    private static double Median(double[] sorted) => Percentile(sorted, 0.5);
+
+    /// <summary>Linear interpolation between the closest ranks (as numpy's default).</summary>
+    public static double Percentile(double[] sorted, double p)
+    {
+        ArgumentNullException.ThrowIfNull(sorted);
+        if (sorted.Length == 0) return double.NaN;
+        var rank = p * (sorted.Length - 1);
+        var lo = (int)Math.Floor(rank);
+        var hi = (int)Math.Ceiling(rank);
+        return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
+    }
 }

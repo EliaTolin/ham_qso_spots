@@ -1,0 +1,203 @@
+{
+  "schema": 1,
+  "model": "F71 decision 30: VOACAP corrected per band and typical forecast (phase 5, agent A)",
+  "generated_by": "ham_qso_spots/tools/voacap-calibration/analysis/stability.py --fixture",
+  "voacap": {
+    "noise_dbw": -135,
+    "required_snr_dbhz": 42,
+    "min_takeoff_deg": 3,
+    "method": 30,
+    "reference_station": {
+      "antenna": "dipole",
+      "height_m": 10,
+      "power_w": 100
+    },
+    "receive_antenna": {
+      "model": "isotropic",
+      "gain_dbi": 0
+    },
+    "p_voacap": "the 'rel' of the reference station (theory) for each listening skimmer"
+  },
+  "ssn": {
+    "source": "observed 10.7 cm solar flux (F10.7obs, local noon at Penticton), not the adjusted one; NOAA SWPC gives it daily",
+    "day": "the UTC day of the start of the test; a day without a value takes the nearest day with one within 3 days (the earlier on a tie), else no forecast",
+    "formula": "CCIR: F = 63.7 + 0.728 R + 0.00089 R^2, so R = (-0.728 + sqrt(0.728^2 + 4 * 0.00089 * (F - 63.7))) / (2 * 0.00089); R = 0 when F <= 63.7; not rounded"
+  },
+  "night": "night = not day; day = local SOLAR time of the transmitting station (the user, its longitude) from 06:00 inclusive to 18:00 exclusive, local solar hour = (UTC hours of the start of the test + longitude / 15) modulo 24",
+  "summer": "summer = the UTC month of the start of the test is May, June, July or August, in both hemispheres (the RBN data are almost all northern)",
+  "correction": "p_corrected = 1 / (1 + exp(-z)), z = a + b * logit(p) + night_coef * (night ? 1 : 0) + summer_coef * (summer ? 1 : 0), logit(p) = ln(q / (1 - q)) with q = p clamped to [0.001, 0.999]; z clamped to [-30, 30]",
+  "typical": "expected = sum of p_corrected over the listening skimmers; typical expected = k * expected; margin = (heard - typical) / typical, only when typical >= 3",
+  "bands": {
+    "40m": {
+      "a": -0.5773918547247563,
+      "b": 0.3318404665231118,
+      "night": -0.20607519873306926,
+      "summer": 0.26568738370306505,
+      "k": 0.6974202227316894
+    },
+    "30m": {
+      "a": -0.4564945113696464,
+      "b": 0.34569377140726715,
+      "night": -0.17366871749155227,
+      "summer": 0.2639715872651959,
+      "k": 0.9109621090197562
+    }
+  },
+  "other_bands": "no comparison with the forecast (decision 30): 160, 80, 20, 17, 15, 12, 10 m",
+  "cases": {
+    "correction": [
+      {
+        "band": "40m",
+        "p_voacap": 0.0,
+        "night": false,
+        "summer": false,
+        "p_corrected": 0.053691
+      },
+      {
+        "band": "40m",
+        "p_voacap": 0.05,
+        "night": false,
+        "summer": false,
+        "p_corrected": 0.174441
+      },
+      {
+        "band": "40m",
+        "p_voacap": 0.3,
+        "night": false,
+        "summer": false,
+        "p_corrected": 0.29764
+      },
+      {
+        "band": "40m",
+        "p_voacap": 0.5,
+        "night": true,
+        "summer": false,
+        "p_corrected": 0.313573
+      },
+      {
+        "band": "40m",
+        "p_voacap": 0.83,
+        "night": false,
+        "summer": true,
+        "p_corrected": 0.553413
+      },
+      {
+        "band": "40m",
+        "p_voacap": 0.95,
+        "night": true,
+        "summer": true,
+        "p_corrected": 0.612849
+      },
+      {
+        "band": "30m",
+        "p_voacap": 0.0,
+        "night": false,
+        "summer": false,
+        "p_corrected": 0.054986
+      },
+      {
+        "band": "30m",
+        "p_voacap": 0.05,
+        "night": false,
+        "summer": false,
+        "p_corrected": 0.186279
+      },
+      {
+        "band": "30m",
+        "p_voacap": 0.3,
+        "night": false,
+        "summer": false,
+        "p_corrected": 0.320952
+      },
+      {
+        "band": "30m",
+        "p_voacap": 0.5,
+        "night": true,
+        "summer": false,
+        "p_corrected": 0.347474
+      },
+      {
+        "band": "30m",
+        "p_voacap": 0.83,
+        "night": false,
+        "summer": true,
+        "p_corrected": 0.587979
+      },
+      {
+        "band": "30m",
+        "p_voacap": 0.95,
+        "night": true,
+        "summer": true,
+        "p_corrected": 0.65739
+      }
+    ],
+    "typical": [
+      {
+        "band": "40m",
+        "expected": 2.0,
+        "typical_expected": 1.39484,
+        "has_margin": false
+      },
+      {
+        "band": "40m",
+        "expected": 4.0,
+        "typical_expected": 2.789681,
+        "has_margin": false
+      },
+      {
+        "band": "40m",
+        "expected": 10.0,
+        "typical_expected": 6.974202,
+        "has_margin": true
+      },
+      {
+        "band": "30m",
+        "expected": 2.0,
+        "typical_expected": 1.821924,
+        "has_margin": false
+      },
+      {
+        "band": "30m",
+        "expected": 4.0,
+        "typical_expected": 3.643848,
+        "has_margin": true
+      },
+      {
+        "band": "30m",
+        "expected": 10.0,
+        "typical_expected": 9.109621,
+        "has_margin": true
+      }
+    ],
+    "ssn_from_f107": [
+      {
+        "f107_observed_sfu": 60.0,
+        "ssn": 0.0
+      },
+      {
+        "f107_observed_sfu": 63.7,
+        "ssn": 0.0
+      },
+      {
+        "f107_observed_sfu": 70.0,
+        "ssn": 8.5642
+      },
+      {
+        "f107_observed_sfu": 100.0,
+        "ssn": 47.1453
+      },
+      {
+        "f107_observed_sfu": 150.0,
+        "ssn": 105.0522
+      },
+      {
+        "f107_observed_sfu": 200.0,
+        "ssn": 157.0659
+      },
+      {
+        "f107_observed_sfu": 250.0,
+        "ssn": 204.6868
+      }
+    ]
+  }
+}

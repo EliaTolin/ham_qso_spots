@@ -30,7 +30,7 @@ public class CalibrationEventsTests
 {
     private static readonly DateTimeOffset T0 = new(2026, 11, 5, 14, 0, 0, TimeSpan.Zero);
 
-    private static HistorySpot Spot(string skimmer, string dx, int minute, string band = "20m", string kind = "CQ") =>
+    private static HistorySpot Spot(string skimmer, string dx, double minute, string band = "20m", string kind = "CQ") =>
         new(skimmer, band == "20m" ? 14025 : 7025, band, dx, kind, 10, T0.AddMinutes(minute), "CW");
 
     private static LocateSkimmer Locate()
@@ -47,33 +47,117 @@ public class CalibrationEventsTests
     }
 
     [Fact]
-    public void A_CQ_of_a_station_of_known_locator_with_who_heard_it_and_who_was_listening()
+    public void A_test_is_the_first_CQ_after_15_minutes_of_silence_heard_in_3_minutes_listened_to_from_10_minutes_before()
     {
         HistorySpot[] spots =
         [
-            Spot("OK4YL", "K1ABC", 0),           // OK4YL listening on 20 m before the CQ
-            Spot("EA5WU", "K1ABC", -9),          // EA5WU too, 9 minutes before
+            Spot("EA5WU", "K1ABC", -9),          // EA5WU listening on 20 m, 9 minutes before
             Spot("W3LPL", "K1ABC", -11),         // W3LPL 11 minutes before: not listening
-            Spot("OK4YL", "DL1TX/P", 3),         // the CQ of DL1TX (portable), heard by OK4YL
-            Spot("OK4YL", "DL1TX", 4),
+            Spot("OK4YL", "DL1TX/P", 0),         // the start: DL1TX (portable) heard by OK4YL
+            Spot("EA5WU", "DL1TX", 2.5),         // heard by EA5WU within the 3 minutes
+            Spot("W3LPL", "DL1TX", 4),           // after the 3 minutes: neither heard nor listening (the window ends with the test)
             Spot("DL1TX", "K1ABC", 2),           // the station itself is a skimmer: never its own receiver
-            Spot("EA5WU", "K1ABC", 5, "40m"),    // another band
+            Spot("EA5WU", "K1ABC", 1, "40m"),    // another band
         ];
 
         var e = Assert.Single(CalibrationEvents.Build(spots, Locate()));
 
-        Assert.Equal(("DL1TX", "20m", T0, "JO62QM"), (e.Station, e.Band, e.Slot, e.StationLocator));
+        Assert.Equal(("DL1TX", "20m", T0, "JO62QM"), (e.Station, e.Band, e.Start, e.StationLocator));
         Assert.Equal(["EA5WU", "OK4YL"], e.Listening.Select(l => l.Call).Order());
-        Assert.Equal(["OK4YL"], e.Heard);
+        Assert.Equal(["EA5WU", "OK4YL"], e.Heard);
+        Assert.Equal([new HeardSpot("EA5WU", 10, 150), new HeardSpot("OK4YL", 10, 0)], e.HeardSpots);
         Assert.Equal(14.025, e.FrequencyMhz, 3);
     }
 
     [Fact]
-    public void A_station_without_a_node_locator_a_beacon_or_a_CQ_nobody_listened_to_is_no_event()
+    public void A_station_already_on_the_air_is_no_new_test_until_15_minutes_of_silence()
+    {
+        HistorySpot[] spots =
+        [
+            Spot("OK4YL", "DL1TX", -14),  // a start
+            Spot("OK4YL", "DL1TX", 0),    // 14 minutes later: still on the air, not a start
+            Spot("EA5WU", "DL1TX", 16),   // 16 minutes after the last: a new start
+        ];
+
+        var events = CalibrationEvents.Build(spots, Locate());
+
+        Assert.Equal([T0.AddMinutes(-14), T0.AddMinutes(16)], events.Select(e => e.Start));
+    }
+
+    [Fact]
+    public void The_first_15_minutes_of_a_day_start_no_test_the_silence_before_is_not_known()
+    {
+        var midnight = new DateTimeOffset(2026, 11, 5, 0, 0, 0, TimeSpan.Zero);
+        HistorySpot[] spots = [Spot("OK4YL", "DL1TX", 0) with { At = midnight.AddMinutes(10) }, Spot("OK4YL", "DL1TX", 0) with { At = midnight.AddMinutes(40) }];
+
+        Assert.Equal([midnight.AddMinutes(40)], CalibrationEvents.Build(spots, Locate()).Select(e => e.Start));
+    }
+
+    [Fact]
+    public void A_station_without_a_node_locator_or_a_beacon_is_no_test()
     {
         HistorySpot[] spots = [Spot("OK4YL", "K1ABC", 1), Spot("OK4YL", "DL1TX", 2, kind: "BEACON")];
 
         Assert.Empty(CalibrationEvents.Build(spots, Locate()));
+    }
+
+    [Theory]
+    [InlineData(14, 12.5, true)]  // Rome, 14 UTC: day
+    [InlineData(2, 12.5, false)]
+    [InlineData(13, -120, false)] // California, 13 UTC: 5 local
+    [InlineData(22, -120, true)]
+    public void Day_is_6_to_18_local_solar_time_of_the_station(int utcHour, double lon, bool day) =>
+        Assert.Equal(day, CalibrationEvents.IsDay(new DateTimeOffset(2026, 11, 5, utcHour, 0, 0, TimeSpan.Zero), lon));
+}
+
+public class TestRowTests
+{
+    [Fact]
+    public void A_simulated_test_with_expected_heard_farthest_continents_and_surprises()
+    {
+        var at = new DateTimeOffset(2026, 11, 5, 14, 0, 0, TimeSpan.Zero);
+        SkimmerInfo Sk(string call, double lat, double lon, string cont) => new(call, new SkimmerPosition(null, lat, lon, "node"), 1, cont);
+        var e = new CalibrationEvent("DL1TX", "JO62QM", new SkimmerPosition("JO62QM", 52.5, 13.4, "node"), "20m", 14.025, at,
+            [Sk("A", 52.5, 14.4, "EU"), Sk("B", 40.7, -74.0, "NA"), Sk("C", -33.9, 151.2, "OC"), Sk("D", 48.8, 2.3, "EU")],
+            ["A", "B", "C"]);
+        var rel = new Dictionary<string, double> { ["A"] = 0.9, ["B"] = 0.9, ["C"] = 0.2, ["D"] = 1.0 };
+
+        var row = TestRow.Of(e, rel);
+
+        Assert.Equal((4, 3.0, 3, 3, 1), (row.Listening, Math.Round(row.ExpectedTheory, 6), row.Heard, row.Continents, row.Surprises));
+        Assert.InRange(row.FarthestKm, 16_000, 16_200);
+        Assert.Equal(0, row.Margin!.Value, 6);
+        Assert.Null(TestRow.Of(e, new Dictionary<string, double> { ["A"] = 0.1 }).Margin);
+    }
+}
+
+public class SsnByMonthTests
+{
+    [Fact]
+    public void NOAA_observed_SWPC_number_where_there_is_one_else_the_prediction()
+    {
+        var map = SsnByMonth.From(
+            """[{"time-tag":"2026-09","ssn":45.7,"observed_swpc_ssn":68.73},{"time-tag":"2026-10","observed_swpc_ssn":61.71}]""",
+            """[{"time-tag":"2026-10","predicted_ssn":82.9},{"time-tag":"2026-11","predicted_ssn":83.2}]""");
+
+        Assert.Equal((68.73, 61.71, 83.2), (map[(2026, 9)], map[(2026, 10)], map[(2026, 11)]));
+    }
+}
+
+public class SampleTests
+{
+    [Fact]
+    public void At_most_n_per_band_and_day_or_night_spread_over_the_stations_the_same_with_the_same_seed()
+    {
+        var at = new DateTimeOffset(2026, 11, 5, 12, 0, 0, TimeSpan.Zero);
+        var events = Enumerable.Range(0, 40).Select(i => new CalibrationEvent($"S{i % 4}", "JN45ON", new SkimmerPosition("JN45ON", 45, 9, "node"), i % 2 == 0 ? "20m" : "40m", 14, at.AddMinutes(i * 20), [], [])).ToArray();
+
+        var a = Sample.Stratified(events, 5, 71);
+        var b = Sample.Stratified(events, 5, 71);
+
+        Assert.Equal(a, b);
+        Assert.All(a.GroupBy(e => (e.Band, CalibrationEvents.IsDay(e.Start, e.StationPosition.Lon))), g => Assert.True(g.Count() <= 5));
+        Assert.All(a.GroupBy(e => e.Band), g => Assert.True(g.Select(e => e.Station).Distinct().Count() >= 2));
     }
 }
 
@@ -95,6 +179,56 @@ public class ScoreTests
         Assert.Equal(6, s.Heard);
         Assert.Equal((0.01 + 0.04 + 0.49 + 0.16 + 0.25 + 0.25 + 0 + 0 + 1 + 1) / 10, s.Brier, 6);
         Assert.Equal(-0.25, s.MedianMargin, 6);
+        // Percentiles by linear interpolation between the margins (-0.5 and 0).
+        Assert.Equal(-0.45, s.P10Margin, 6);
+        Assert.Equal(-0.05, s.P90Margin, 6);
+        Assert.Equal(2, s.WithMargin);
         Assert.Equal((0, 1, 1), (s.Above, s.Near, s.Below));
+    }
+
+    private static Score S(double brier, double median) => new(10, 10, 10, brier, median, 0, 0, 0, median, median, double.IsNaN(median) ? 0 : 5);
+
+    [Fact]
+    public void The_best_is_the_lowest_Brier_within_10_percent_else_the_nearest_margin_never_a_missing_margin()
+    {
+        Assert.Equal("b", Score.Best([("a", S(0.10, 0.30)), ("b", S(0.12, 0.05)), ("c", S(0.13, -0.02))]).Settings);
+        Assert.Equal("a", Score.Best([("a", S(0.12, -0.17)), ("b", S(0.10, double.NaN)), ("c", S(0.11, 0.34))]).Settings);
+        Assert.Equal("b", Score.Best([("a", S(0.12, double.NaN)), ("b", S(0.10, double.NaN))]).Settings);
+    }
+}
+
+public class SsnByDayTests
+{
+    [Theory]
+    [InlineData(63.7, 0)]
+    [InlineData(150, 105.05)]
+    [InlineData(60, 0)]
+    public void The_SSN_of_a_daily_flux_with_the_CCIR_relation(double f107, double ssn) =>
+        Assert.Equal(ssn, SsnByDay.FromF107(f107), 2);
+
+    [Fact]
+    public void The_observed_F107_of_each_day_of_the_GFZ_file_never_its_SILSO_column()
+    {
+        const string file = """
+            # LICENSE: CC BY 4.0, except for the sunspot numbers
+            #YYY MM DD  days  days_m  Bsr dB    Kp1    Kp2    Kp3    Kp4    Kp5    Kp6    Kp7    Kp8  ap1  ap2  ap3  ap4  ap5  ap6  ap7  ap8    Ap  SN F10.7obs F10.7adj D
+            2026 11 05 34642 34642.5 2635 11  0.667  1.333  1.000  1.000  0.667  0.667  2.333  2.667    3    5    4    4    3    3    9   12     5  99    150.0    121.6 0
+            2026 11 06 34643 34643.5 2635 12  2.333  0.667  2.333  2.000  2.000  2.000  2.333  3.000    9    3    9    7    7    7    9   15     8 106     -1.0    123.1 0
+            """;
+
+        var days = SsnByDay.FromGfz(file);
+
+        Assert.Equal(105.05, days[new DateOnly(2026, 11, 5)], 2);
+        Assert.False(days.ContainsKey(new DateOnly(2026, 11, 6)));
+    }
+
+    [Fact]
+    public void A_day_without_a_flux_takes_the_nearest_day_within_3_days_else_none()
+    {
+        var days = new Dictionary<DateOnly, double> { [new DateOnly(2025, 2, 11)] = 100, [new DateOnly(2025, 2, 14)] = 120 };
+
+        Assert.Equal(100, SsnByDay.On(days, new DateOnly(2025, 2, 12)));
+        Assert.Equal(120, SsnByDay.On(days, new DateOnly(2025, 2, 13)));  // the 14th is 1 day away, the 11th 2
+        Assert.Null(SsnByDay.On(days, new DateOnly(2025, 2, 20)));
     }
 }

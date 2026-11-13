@@ -41,16 +41,20 @@ public static class PskReportParser
         o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } s ? s : null;
 }
 
-/// <summary>The MQTT topics to listen to: only the protected callsigns, never the whole feed.</summary>
+/// <summary>
+/// The MQTT topics to listen to: only the protected callsigns, never the whole feed. Topic:
+/// <c>pskr/filter/v2/{band}/{mode}/{sender}/{receiver}/...</c>. The feed writes a "/" of a callsign as "."
+/// (DL7EDU/P is "DL7EDU.P"; community-observed, the feed documents no rule), the payload keeps the "/".
+/// Limitation, by design: an MQTT wildcard is a whole topic level, so a sender with a prefix ("DL/IN3FOB",
+/// "DL.IN3FOB" in the topic) cannot be matched without listening to every sender; those are missed. Suffixes
+/// are covered by <see cref="SuffixVariants"/>; any other suffix too.
+/// </summary>
 public static class PskTopics
 {
-    /// <summary>The ways a portable suffix can come in a topic segment if the feed writes "/" as "_" (the payload decides in the end).</summary>
-    public static readonly string[] SuffixVariants = ["_P", "_M", "_QRP", "_MM", "_A"];
+    /// <summary>The portable suffixes a topic segment can carry, with the "." the feed puts for the "/".</summary>
+    public static readonly string[] SuffixVariants = [".P", ".M", ".QRP", ".MM", ".A"];
 
-    /// <summary>
-    /// For every callsign: the sender as it is, and the variants. A "/" kept in the topic is covered by the
-    /// trailing "#" of the first. Format: pskr/filter/v2/{band}/{mode}/{sender}/...
-    /// </summary>
+    /// <summary>For every callsign: the sender as it is, and with each suffix of <see cref="SuffixVariants"/>.</summary>
     public static IReadOnlyList<string> For(IEnumerable<string> baseCallsigns)
     {
         ArgumentNullException.ThrowIfNull(baseCallsigns);

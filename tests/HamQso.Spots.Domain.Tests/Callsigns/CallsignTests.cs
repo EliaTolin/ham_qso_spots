@@ -23,6 +23,18 @@ public class CallsignTests
         Assert.Equal(expected, Callsign.Base(input));
 
     [Theory]
+    [InlineData("IN3FOB/P", "IN3FOB")]
+    [InlineData("DL/IN3FOB", "IN3FOB")]
+    [InlineData("IN3FOB/DL1ABC", "DL1ABC")]
+    [InlineData("IN3FOB/QRP", "IN3FOB")]
+    [InlineData("EA8/IN3FOB/P", "IN3FOB")]
+    [InlineData("T8/K5", "K5")]
+    [InlineData("W1AW/4", "W1AW")]
+    [InlineData("ABC/P", "ABC")]
+    public void F107_review_10_protection_matching_cases_of_the_backend_function(string input, string expected) =>
+        Assert.Equal(expected, Callsign.Base(input));
+
+    [Theory]
     [InlineData("IN3FOB", true)]
     [InlineData("ea8/in3fob/p", true)]
     [InlineData("3Y0J", true)]

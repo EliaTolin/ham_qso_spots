@@ -9,8 +9,10 @@ namespace HamQso.Spots.Application.Protection;
 /// not about a protected callsign is dropped at once, and a station's own spot of itself is no use.
 /// What stays is gathered by <see cref="UseAggregator"/>. It decides nothing about who is on air.
 /// </summary>
-public sealed class ProtectionCollector(ProtectedCallsignRegistry registry, UseAggregator aggregator) : IProtectionTap
+public sealed class ProtectionCollector(ProtectedCallsignRegistry registry, UseAggregator aggregator, TimeProvider? time = null) : IProtectionTap
 {
+    private readonly TimeProvider clock = time ?? TimeProvider.System;
+
     public void OfferRbn(RbnLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
@@ -34,10 +36,12 @@ public sealed class ProtectionCollector(ProtectedCallsignRegistry registry, UseA
             {
                 if (ProtectedCallsigns.StationOf(spotter) == owner) continue;
                 var isSkimmer = spotter.EndsWith("-#", StringComparison.Ordinal);
+                // A skimmer is stamped with our clock, as the RBN lines are (ReceivedAt): the cluster's own clock
+                // could put the same skimmer in the next minute and count it twice.
                 aggregator.Add(owner, new Hearing(
                     spot.Callsign,
                     isSkimmer ? ProtectionSignal.Skimmer : ProtectionSignal.Spot,
-                    spot.SpotTime,
+                    isSkimmer ? clock.GetUtcNow() : spot.SpotTime,
                     band,
                     spot.FrequencyKhz,
                     string.IsNullOrEmpty(spot.Mode) ? null : spot.Mode,

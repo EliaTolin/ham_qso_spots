@@ -10,13 +10,13 @@ public class ProtectionCollectorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 13, 3, 14, 20, TimeSpan.Zero);
 
-    private static AlertSpot Cluster(string call, string spotter, double khz = 7020) => new(SpotEnrichment.Enrich(new Spot
+    private static AlertSpot Cluster(string call, string spotter, double khz = 7020, DateTimeOffset? at = null) => new(SpotEnrichment.Enrich(new Spot
     {
         Program = SpotProgram.Dx,
         SpotKey = $"{call}_{khz}_{spotter}",
         Callsign = call,
         FrequencyKhz = khz,
-        SpotTime = Now,
+        SpotTime = at ?? Now,
         Feeds = ["DXFun"],
         Spotters = [spotter],
         Comment = "CW 12 dB",
@@ -120,5 +120,20 @@ public class ProtectionCollectorTests
         Assert.NotNull(registry.Current.Match("IN3FOB/P"));
         Assert.Equal(version, registry.Version);
         Assert.False(health.Calls[^1].Ok);
+    }
+
+    [Fact]
+    public async Task F107_review_11b_the_same_skimmer_from_the_RBN_and_from_a_cluster_is_one_receiver_in_one_minute()
+    {
+        var agg = new UseAggregator();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 3, 14, 59, TimeSpan.Zero));
+        var collector = await Protected.CollectorAsync(agg, clock, "IN3FOB");
+
+        collector.OfferRbn(RbnLines.Line("IN3FOB", "DF7GB-#", 7020.0, clock.GetUtcNow()));
+        // the cluster stamps the spot in its own clock, a few seconds later (next minute)
+        collector.OfferSpots([Cluster("IN3FOB", "DF7GB-#", 7020, at: Now.AddSeconds(45))]);
+
+        var use = Assert.Single(agg.Drain(Now.AddMinutes(5)));
+        Assert.Equal(1, use.Raw["receivers"]);
     }
 }

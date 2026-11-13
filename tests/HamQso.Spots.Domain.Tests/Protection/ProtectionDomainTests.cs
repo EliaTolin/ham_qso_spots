@@ -117,9 +117,43 @@ public class ProtectionDomainTests
         var topics = PskTopics.For(["IN3FOB", "IN3FOB"]);
 
         Assert.Equal("pskr/filter/v2/+/+/IN3FOB/#", topics[0]);
-        Assert.Contains("pskr/filter/v2/+/+/IN3FOB_P/#", topics);
+        Assert.Contains("pskr/filter/v2/+/+/IN3FOB.P/#", topics);
         Assert.DoesNotContain(topics, t => t.EndsWith("/+/#", StringComparison.Ordinal) && t.Contains("v2/+/+/+", StringComparison.Ordinal));
         Assert.Equal(1 + PskTopics.SuffixVariants.Length, topics.Count);
         Assert.Empty(PskTopics.For([]));
+    }
+
+    [Fact]
+    public void F107_review_11a_the_key_is_callsign_band_and_minute_whatever_the_signal_and_the_best_signal_wins()
+    {
+        var agg = new UseAggregator();
+        agg.Add("IN3FOB", Hear("PSK1", signal: ProtectionSignal.PskReporter));
+        agg.Add("IN3FOB", Hear("PSK2", signal: ProtectionSignal.PskReporter));
+        agg.Add("IN3FOB", Hear("SK1-#", signal: ProtectionSignal.Skimmer));
+        agg.Add("IN3FOB", Hear("IK2ABC", signal: ProtectionSignal.Spot));
+        agg.Add("IN3FOB", Hear("PSK3", band: "20m", signal: ProtectionSignal.PskReporter));
+
+        var uses = agg.Drain(Minute.AddMinutes(1));
+
+        Assert.Equal(2, uses.Count);
+        var forty = uses.Single(u => u.Band == "40m");
+        Assert.Equal(ProtectionSignal.Spot, forty.Signal);
+        Assert.Equal("IK2ABC", forty.HeardBy);
+        Assert.Equal($"spot:IN3FOB:40m:{Minute.ToUnixTimeSeconds()}", forty.SourceId);
+        var bySignal = (Dictionary<string, object?>)forty.Raw["by_signal"]!;
+        Assert.Equal(2, ((Dictionary<string, object?>)bySignal["pskreporter"]!)["receivers"]);
+        Assert.Equal(1, ((Dictionary<string, object?>)bySignal["skimmer"]!)["receivers"]);
+        Assert.Equal(1, ((Dictionary<string, object?>)bySignal["spot"]!)["receivers"]);
+        Assert.Equal(ProtectionSignal.PskReporter, uses.Single(u => u.Band == "20m").Signal);
+    }
+
+    [Fact]
+    public void F107_review_11c_the_suffix_variants_use_the_dot_the_feed_writes_for_a_slash()
+    {
+        var topics = PskTopics.For(["IN3FOB"]);
+
+        Assert.Contains("pskr/filter/v2/+/+/IN3FOB.P/#", topics);
+        Assert.Contains("pskr/filter/v2/+/+/IN3FOB.QRP/#", topics);
+        Assert.DoesNotContain(topics, t => t.Contains('_', StringComparison.Ordinal));
     }
 }

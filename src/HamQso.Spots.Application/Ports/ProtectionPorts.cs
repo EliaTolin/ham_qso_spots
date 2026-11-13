@@ -38,4 +38,7 @@ public interface IProtectionProbe
     ProtectionSignal Signal { get; }
 
     string? Problem();
+
+    /// <summary>When set, the problem is listed in a batch's failed at most this often (it is never in checked while it lasts).</summary>
+    TimeSpan? ReportEvery => null;
 }

@@ -108,7 +108,7 @@ public sealed partial class PskReporterFeed(
 
     private async Task SyncAsync(CancellationToken cancellationToken)
     {
-        var wanted = PskTopics.For(registry.Current.Bases.Order(StringComparer.Ordinal).Take(options.Value.PskReporterMaxCallsigns)).ToHashSet(StringComparer.Ordinal);
+        var wanted = PskTopics.For(WantedCallsigns()).ToHashSet(StringComparer.Ordinal);
         foreach (var chunk in subscribed.Except(wanted).Chunk(SubscribeChunk))
         {
             var unsub = new MqttClientUnsubscribeOptionsBuilder();
@@ -125,6 +125,13 @@ public sealed partial class PskReporterFeed(
         }
     }
 
+    /// <summary>The callsigns subscribed: all of them up to the cap, in alphabetical order (the rest is reported by <see cref="CapProblem"/>).</summary>
+    public IReadOnlyList<string> WantedCallsigns() => [.. registry.Current.Bases.Order(StringComparer.Ordinal).Take(options.Value.PskReporterMaxCallsigns)];
+
+    /// <summary>"cap exceeded: N &gt; M" when there are more protected callsigns than the cap, else null.</summary>
+    public string? CapProblem() =>
+        registry.Current.Count > options.Value.PskReporterMaxCallsigns ? $"cap exceeded: {registry.Current.Count} > {options.Value.PskReporterMaxCallsigns}" : null;
+
     public async ValueTask DisposeAsync()
     {
         if (client.IsConnected) await client.DisconnectAsync().ConfigureAwait(false);
@@ -138,6 +145,9 @@ public sealed partial class PskReporterFeed(
     {
         public ProtectionSignal Signal => ProtectionSignal.PskReporter;
 
-        public string? Problem() => feed.IsConnected ? null : $"not connected to {feed.Host}: {feed.lastError ?? "starting"}";
+        public string? Problem() => feed.IsConnected ? feed.CapProblem() : $"not connected to {feed.Host}: {feed.lastError ?? "starting"}";
+
+        /// <summary>The cap is a standing condition: said once an hour, not at every batch.</summary>
+        public TimeSpan? ReportEvery => feed.IsConnected && feed.CapProblem() is not null ? TimeSpan.FromHours(1) : null;
     }
 }

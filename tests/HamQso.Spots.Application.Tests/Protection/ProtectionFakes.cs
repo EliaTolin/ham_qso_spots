@@ -33,6 +33,8 @@ internal sealed class FakeProbe(ProtectionSignal signal, string? problem = null)
 
     public string? Problem { get; set; } = problem;
 
+    public TimeSpan? ReportEvery { get; set; }
+
     string? IProtectionProbe.Problem() => Problem;
 }
 
@@ -47,11 +49,13 @@ internal sealed class RecordingHealth : ISourceHealth
 
 internal static class Protected
 {
-    public static async Task<ProtectionCollector> CollectorAsync(UseAggregator aggregator, params string[] callsigns)
+    public static async Task<ProtectionCollector> CollectorAsync(UseAggregator aggregator, params string[] callsigns) => await CollectorAsync(aggregator, null, callsigns);
+
+    public static async Task<ProtectionCollector> CollectorAsync(UseAggregator aggregator, TimeProvider? time, params string[] callsigns)
     {
         var registry = new ProtectedCallsignRegistry(new FakeCallsignSource(callsigns), new RecordingHealth());
         await registry.RefreshAsync(CancellationToken.None);
-        return new ProtectionCollector(registry, aggregator);
+        return new ProtectionCollector(registry, aggregator, time ?? new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 3, 14, 20, TimeSpan.Zero)));
     }
 
     public static PskReport Psk(string sender = "IN3FOB", string receiver = "DL1ABC", string band = "20m", double khz = 14074.5) =>

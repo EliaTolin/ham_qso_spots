@@ -185,4 +185,72 @@ public class ProtectionDispatcherTests
         Assert.Equal(["spot", "skimmer", "pskreporter"], json.RootElement.GetProperty("checked").EnumerateArray().Select(e => e.GetString()));
         Assert.Equal(0, json.RootElement.GetProperty("failed").GetArrayLength());
     }
+
+    [Fact]
+    public async Task F107_review_4_the_overflow_goes_in_the_next_batch_as_a_queue_failure_at_most_once_an_hour()
+    {
+        var d = Dispatcher(new ProtectionLimits { MaxQueue = 10 });
+        for (var i = 0; i < 100; i++) Hear("RX", call: $"IN{i}FOB");
+        time.Advance(TimeSpan.FromMinutes(1));
+        await d.TickAsync(CancellationToken.None);
+        Assert.Contains(uplink.Batches, b => b.Failed.Contains(new SourceFailure("queue", "overflow: 90 uses dropped")));
+
+        uplink.Batches.Clear();
+        for (var i = 0; i < 100; i++) Hear("RX", band: "40m", call: $"IN{i}FOB");
+        time.Advance(TimeSpan.FromMinutes(1));
+        await RunAsync(d, TimeSpan.FromMinutes(20));
+        Assert.DoesNotContain(uplink.Batches, b => b.Failed.Any(f => f.Source == "queue"));
+
+        time.Advance(TimeSpan.FromHours(1));
+        for (var i = 0; i < 100; i++) Hear("RX", band: "15m", call: $"IN{i}FOB");
+        time.Advance(TimeSpan.FromMinutes(1));
+        await RunAsync(d, TimeSpan.FromMinutes(10));
+        Assert.Single(uplink.Batches.SelectMany(b => b.Failed), f => f.Source == "queue");
+    }
+
+    [Fact]
+    public async Task F107_review_12_at_shutdown_every_queued_batch_goes_out_in_the_limits()
+    {
+        var d = Dispatcher();
+        await d.TickAsync(CancellationToken.None);
+        uplink.Batches.Clear();
+        for (var i = 0; i < 1200; i++) Hear($"R{i}", call: $"IN{i}FOB");
+        time.Advance(TimeSpan.FromMinutes(1));
+        await d.TickAsync(CancellationToken.None); // first batch of 500, 700 still queued
+        Assert.Equal(700, d.Queued);
+
+        await d.FlushAsync(CancellationToken.None);
+
+        Assert.Equal(0, d.Queued);
+        Assert.Equal(1200, uplink.Batches.Sum(b => b.Uses.Count));
+        Assert.All(uplink.Batches, b => Assert.True(b.Uses.Count <= 500));
+        Assert.All(uplink.Batches, b => Assert.True(ProtectionPayload.Serialize(b).Length < 256 * 1024));
+    }
+
+    [Fact]
+    public async Task F107_review_12_a_failing_backend_at_shutdown_stops_after_one_try()
+    {
+        var d = Dispatcher();
+        await d.TickAsync(CancellationToken.None);
+        uplink.Batches.Clear();
+        for (var i = 0; i < 1200; i++) Hear($"R{i}", call: $"IN{i}FOB");
+        time.Advance(TimeSpan.FromMinutes(1));
+        uplink.Next.Enqueue(new HttpRequestException("500"));
+
+        await d.FlushAsync(CancellationToken.None);
+
+        Assert.Single(uplink.Batches);
+    }
+
+    [Fact]
+    public async Task F107_review_4_a_problem_that_says_report_hourly_stays_out_of_checked_but_is_listed_in_failed_once_an_hour()
+    {
+        probes[2] = new FakeProbe(ProtectionSignal.PskReporter, "cap exceeded: 6000 > 5000") { ReportEvery = TimeSpan.FromHours(1) };
+        var d = Dispatcher();
+
+        await RunAsync(d, TimeSpan.FromMinutes(20));
+
+        Assert.All(uplink.Batches, b => Assert.DoesNotContain("pskreporter", b.Checked));
+        Assert.Single(uplink.Batches.SelectMany(b => b.Failed), f => f.Source == "pskreporter");
+    }
 }

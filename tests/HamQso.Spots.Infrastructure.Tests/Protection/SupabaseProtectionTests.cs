@@ -56,23 +56,31 @@ public class SupabaseProtectionTests
     }
 
     [Fact]
-    public async Task The_protected_callsigns_are_read_in_pages_with_the_secret_key()
+    public async Task F107_review_5_the_watchlist_is_the_backend_rpc_with_the_secret_key_not_every_profile()
     {
         var seen = new List<(string Url, string? Key, string Body)>();
-        var calls = 0;
         var source = new SupabaseProtectedCallsigns(Options.Create(Supabase), new HttpClient(new StubHandler(_ =>
-        {
-            var rows = calls++ == 0 ? Enumerable.Range(0, SupabaseProtectedCallsigns.PageSize).Select(i => $"{{\"callsign\":\"IN{i % 10}FOB\"}}") : ["{\"callsign\":\"DL1ABC\"}", "{\"callsign\":null}"];
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($"[{string.Join(',', rows)}]") };
-        }, seen)));
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""[{"callsign":"IN3FOB/P","base":"IN3FOB"},{"callsign":"DL1ABC","base":"DL1ABC"},{"callsign":null,"base":null}]""") }, seen)));
 
         var all = await source.LoadAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(SupabaseProtectedCallsigns.PageSize + 1, all.Count);
-        Assert.Equal(2, seen.Count);
-        Assert.All(seen, s => Assert.Equal("sb_secret_test", s.Key));
-        Assert.Contains("callsign_protection=eq.true", seen[0].Url, StringComparison.Ordinal);
-        Assert.Contains("offset=1000", seen[1].Url, StringComparison.Ordinal);
+        Assert.Equal(["IN3FOB/P", "DL1ABC"], all);
+        var (url, key, body) = Assert.Single(seen);
+        Assert.Equal("https://example.supabase.co/rest/v1/rpc/callsign_protection_watchlist", url);
+        Assert.Equal("sb_secret_test", key);
+        Assert.Equal("{}", body);
+    }
+
+    [Fact]
+    public async Task F107_review_5_over_the_cap_the_feed_subscribes_up_to_it_and_says_so_and_says_so()
+    {
+        var registry = new ProtectedCallsignRegistry(new ListSource("IN3FOB", "IN4FOB", "IN5FOB"), NullSourceHealth.Instance);
+        await registry.RefreshAsync(TestContext.Current.CancellationToken);
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 3, 14, 0, TimeSpan.Zero));
+        var feed = new PskReporterFeed(Options.Create(new ProtectionOptions { PskReporterMaxCallsigns = 2 }), registry, new ProtectionCollector(registry, new UseAggregator()), time, Microsoft.Extensions.Logging.Abstractions.NullLogger<PskReporterFeed>.Instance);
+
+        Assert.Equal(2, feed.WantedCallsigns().Count);
+        Assert.Equal("cap exceeded: 3 > 2", feed.CapProblem());
     }
 
     [Fact]

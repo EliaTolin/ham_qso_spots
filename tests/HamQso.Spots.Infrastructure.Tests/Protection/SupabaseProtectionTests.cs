@@ -66,9 +66,30 @@ public class SupabaseProtectionTests
 
         Assert.Equal(["IN3FOB/P", "DL1ABC"], all);
         var (url, key, body) = Assert.Single(seen);
-        Assert.Equal("https://example.supabase.co/rest/v1/rpc/callsign_protection_watchlist", url);
+        Assert.Equal("https://example.supabase.co/rest/v1/rpc/callsign_protection_watchlist?order=callsign&limit=1000&offset=0", url);
         Assert.Equal("sb_secret_test", key);
         Assert.Equal("{}", body);
+    }
+
+    [Fact]
+    public async Task F107_review_5_the_watchlist_is_read_in_pages_of_1000_because_postgrest_cuts_at_max_rows()
+    {
+        var seen = new List<(string Url, string? Key, string Body)>();
+        var calls = 0;
+        var source = new SupabaseProtectedCallsigns(Options.Create(Supabase), new HttpClient(new StubHandler(_ =>
+        {
+            var rows = calls++ == 0
+                ? Enumerable.Range(0, SupabaseProtectedCallsigns.PageSize).Select(i => $"{{\"callsign\":\"IN{i}FOB\",\"base\":\"IN{i}FOB\"}}")
+                : ["{\"callsign\":\"DL1ABC\",\"base\":\"DL1ABC\"}"];
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($"[{string.Join(',', rows)}]") };
+        }, seen)));
+
+        var all = await source.LoadAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(SupabaseProtectedCallsigns.PageSize + 1, all.Count);
+        Assert.Equal(2, seen.Count);
+        Assert.Contains("offset=1000", seen[1].Url, StringComparison.Ordinal);
+        Assert.All(seen, s => Assert.Equal("sb_secret_test", s.Key));
     }
 
     [Fact]

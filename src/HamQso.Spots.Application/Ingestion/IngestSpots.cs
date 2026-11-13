@@ -18,7 +18,8 @@ public sealed partial class IngestSpots(
     ISpotPublisher publisher,
     IAlertNotifier alerts,
     TimeProvider time,
-    ILogger<IngestSpots> logger) : IDisposable
+    ILogger<IngestSpots> logger,
+    IProtectionTap? protection = null) : IDisposable
 {
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -63,6 +64,7 @@ public sealed partial class IngestSpots(
 
             var publishing = changed.Length > 0 ? SaveAndPublishAsync(changed, cancellationToken) : Task.CompletedTask;
             var alertable = AlertableSpots.Of(accepted, time.GetUtcNow());
+            if (alertable.Length > 0) Protect(alertable);
             var alerting = alertable.Length > 0 ? RunAsync("alerts", () => alerts.NotifyAsync(alertable, cancellationToken)) : Task.CompletedTask;
 
             await Task.WhenAll(publishing, alerting).ConfigureAwait(false);
@@ -70,6 +72,19 @@ public sealed partial class IngestSpots(
         finally
         {
             gate.Release();
+        }
+    }
+
+    /// <summary>F107: the spots that came in are offered to the callsign protection; it never stops the ingestion.</summary>
+    private void Protect(AlertSpot[] spots)
+    {
+        try
+        {
+            protection?.OfferSpots(spots);
+        }
+        catch (Exception e)
+        {
+            LogStepFailed(logger, e, "protection");
         }
     }
 

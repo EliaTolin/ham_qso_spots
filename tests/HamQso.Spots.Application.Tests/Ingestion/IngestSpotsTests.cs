@@ -54,6 +54,33 @@ public sealed class IngestSpotsTests : IDisposable
     private Task Receive(params Spot[] spots) => ingest.HandleAsync(new SpotBatch(spots[0].Feeds[0], spots), CancellationToken.None);
 
     [Fact]
+    public async Task F107_accepted_spots_are_offered_to_the_protection_tap_once_and_a_failing_tap_does_not_stop_the_alerts()
+    {
+        var tap = new RecordingTap();
+        using var withTap = new IngestSpots(new InMemorySpotDeduplicator(time), store, publisher, alerts, time, NullLogger<IngestSpots>.Instance, tap);
+
+        await withTap.HandleAsync(new SpotBatch("DXFun", [Dx("JA1ABC", 14025.0, "DXFun")]), CancellationToken.None);
+        tap.Fails = true;
+        await withTap.HandleAsync(new SpotBatch("DXFun", [Dx("JA2ABC", 14030.0, "DXFun")]), CancellationToken.None);
+
+        Assert.Equal(["JA1ABC", "JA2ABC"], tap.Offered);
+        Assert.Equal(2, alerts.Calls.Sum(c => c.Count));
+    }
+
+    private sealed class RecordingTap : IProtectionTap
+    {
+        public List<string> Offered { get; } = [];
+
+        public bool Fails { get; set; }
+
+        public void OfferSpots(IEnumerable<AlertSpot> spots)
+        {
+            Offered.AddRange(spots.Select(s => s.Spot.Callsign));
+            if (Fails) throw new InvalidOperationException("tap broke");
+        }
+    }
+
+    [Fact]
     public async Task The_same_spot_from_DXFun_and_HamQTH_is_saved_and_alerted_once_with_both_feeds()
     {
         await Receive(Dx("JA1ABC", 14025.0, "DXFun"));

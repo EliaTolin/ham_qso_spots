@@ -4,6 +4,8 @@ using HamQso.Spots.Application.Dedup;
 using HamQso.Spots.Application.Health;
 using HamQso.Spots.Application.Ingestion;
 using HamQso.Spots.Application.Proxy;
+using HamQso.Spots.Application.Protection;
+using HamQso.Spots.Domain.Protection;
 using HamQso.Spots.Application.Rbn;
 using HamQso.Spots.Application.Reading;
 using HamQso.Spots.Application.Sending;
@@ -14,6 +16,7 @@ using HamQso.Spots.Infrastructure.Catalog;
 using HamQso.Spots.Infrastructure.Mqtt;
 using HamQso.Spots.Infrastructure.Postgres;
 using HamQso.Spots.Infrastructure.Profiles;
+using HamQso.Spots.Infrastructure.Protection;
 using HamQso.Spots.Infrastructure.Proxy;
 using HamQso.Spots.Infrastructure.Rbn;
 using HamQso.Spots.Infrastructure.Sending;
@@ -131,9 +134,39 @@ public static class ServiceCollectionExtensions
             services.AddHostedService<ReferenceCatalogWorker>();
         }
 
+        AddCallsignProtection(services, configuration);
+
         services.AddHostedService<IngestionWorker>();
         services.AddHostedService<RetentionWorker>();
         services.AddHealthChecks().AddCheck<SourcesHealthCheck>("sources");
         return services;
+    }
+
+    /// <summary>
+    /// F107, callsign protection: off unless Protection:Enabled and the secret key are set (a local run touches
+    /// neither Supabase nor PSKReporter). PSKReporter has its own flag, Protection:PskReporterEnabled.
+    /// </summary>
+    private static void AddCallsignProtection(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<ProtectionOptions>().BindConfiguration(ProtectionOptions.Section).ValidateDataAnnotations().ValidateOnStart();
+        var options = configuration.GetSection(ProtectionOptions.Section).Get<ProtectionOptions>() ?? new ProtectionOptions();
+        if (!options.Enabled || string.IsNullOrWhiteSpace(configuration[$"{SupabaseOptions.Section}:SecretKey"])) return;
+
+        services.AddSingleton<UseAggregator>();
+        services.AddSingleton(new ProtectionLimits());
+        services.AddHttpClient<IProtectedCallsignSource, SupabaseProtectedCallsigns>();
+        services.AddHttpClient<IProtectionUplink, SupabaseProtectionUplink>(c => c.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton<ProtectedCallsignRegistry>();
+        services.AddSingleton<ProtectionCollector>();
+        services.AddSingleton<IProtectionTap>(sp => sp.GetRequiredService<ProtectionCollector>());
+        services.AddSingleton<IProtectionProbe, SkimmerProbe>();
+        services.AddSingleton<IProtectionProbe, SpotProbe>();
+        if (options.PskReporterEnabled)
+        {
+            services.AddSingleton<PskReporterFeed>();
+            services.AddSingleton(sp => sp.GetRequiredService<PskReporterFeed>().Probe);
+        }
+        services.AddSingleton<ProtectionDispatcher>();
+        services.AddHostedService<ProtectionWorker>();
     }
 }
